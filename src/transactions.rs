@@ -6,12 +6,12 @@ use bitcoin::{
     BitcoinAmount, BitcoinFormat, BitcoinPrivateKey, BitcoinTransaction, BitcoinTransactionInput,
     BitcoinTransactionOutput, BitcoinTransactionParameters,
 };
+use fixed_size_array::FixedSizeArray32;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use wagyu_model::crypto::hash160;
 use wagyu_model::PrivateKey;
 use wagyu_model::Transaction;
-use fixed_size_array::FixedSizeArray32;
 
 pub const SATOSHI: i64 = 100000000;
 
@@ -126,9 +126,9 @@ pub mod btc {
         script.extend(vec![0x52, 0xae]); // OP_2 OP_CHECKMULTISIG
 
         // compute SHA256 hash of script
-        let script_hash = Sha256::digest(&script); 
+        let script_hash = Sha256::digest(&script);
         let mut hash = [0u8; 32];
-        hash.copy_from_slice(&script_hash); 
+        hash.copy_from_slice(&script_hash);
         let mut script_pubkey = Vec::new();
         script_pubkey.extend(vec![0x00, 0x20]); // len of hash
         script_pubkey.extend_from_slice(&hash);
@@ -154,9 +154,9 @@ pub mod btc {
     }
 
     pub fn get_private_key<N: BitcoinNetwork>(
-        private_key: Vec<u8>,
+        private_key: &Vec<u8>,
     ) -> Result<BitcoinPrivateKey<N>, String> {
-        let sk = match secp256k1::SecretKey::parse_slice(&private_key) {
+        let sk = match secp256k1::SecretKey::parse_slice(private_key) {
             Ok(n) => n,
             Err(e) => return Err(e.to_string()),
         };
@@ -180,7 +180,7 @@ pub mod btc {
         // compute SHA256 hash of script
         let script_hash = Sha256::digest(&script);
         let mut hash = [0u8; 32];
-        hash.copy_from_slice(&script_hash); 
+        hash.copy_from_slice(&script_hash);
         let mut script_pubkey = Vec::new();
         script_pubkey.extend(vec![0x00, 0x20]); // len of hash
         script_pubkey.extend_from_slice(&script_hash);
@@ -240,9 +240,9 @@ pub mod btc {
             self_delay_le,
         );
         // compute SHA256 hash of script
-        let script_hash = Sha256::digest(&script); 
+        let script_hash = Sha256::digest(&script);
         let mut hash = [0u8; 32];
-        hash.copy_from_slice(&script_hash); 
+        hash.copy_from_slice(&script_hash);
         let mut script_pubkey = Vec::new();
         script_pubkey.extend(vec![0x00, 0x20]); // len of hash
         script_pubkey.extend_from_slice(&script_hash);
@@ -355,7 +355,10 @@ pub mod btc {
         // add multi-sig output as P2WSH output
         let output1_script_pubkey =
             create_p2wsh_scriptpubkey::<N>(&output1.cust_pubkey, &output1.merch_pubkey);
-        println!("multi-sig script pubkey: {}", hex::encode(&output1_script_pubkey));
+        println!(
+            "multi-sig script pubkey: {}",
+            hex::encode(&output1_script_pubkey)
+        );
         let multisig_output = BitcoinTransactionOutput {
             amount: BitcoinAmount(output1.amount),
             script_pub_key: output1_script_pubkey,
@@ -499,11 +502,10 @@ pub mod btc {
         let sighash_code = SIGHASH_ALL as u32;
 
         // Signature
-        let (signature, _) = 
-            secp256k1::sign(
-                &secp256k1::Message::parse_slice(&transaction_hash).unwrap(),
-                &private_key.to_secp256k1_secret_key(),
-            );
+        let (signature, _) = secp256k1::sign(
+            &secp256k1::Message::parse_slice(&transaction_hash).unwrap(),
+            &private_key.to_secp256k1_secret_key(),
+        );
         let mut signature = signature.serialize_der().as_ref().to_vec();
         signature.push(sighash_code.to_le_bytes()[0]);
         let signature = [get_var_length_int(signature.len() as u64)?, signature].concat();
@@ -953,7 +955,7 @@ pub mod btc {
         let lock_time = 0;
         let address_format = match input.address_format {
             "p2wpkh" => BitcoinFormat::Bech32, // output of cust-close-*-tx
-            "p2wsh" => BitcoinFormat::P2WSH,  // output of merch-close-tx
+            "p2wsh" => BitcoinFormat::P2WSH,   // output of merch-close-tx
             _ => {
                 return Err(format!(
                     "do not currently support specified address format: {}",
@@ -1033,6 +1035,138 @@ pub mod btc {
 
         let signed_tx_vec = signed_tx.to_transaction_bytes().unwrap();
         Ok((signed_tx_vec, Vec::new()))
+    }
+
+    pub fn generate_customer_close_tx_helper<N: BitcoinNetwork>(
+        close_escrow_signature: &Option<String>,
+        escrow_tx_preimage: &Vec<u8>,
+        escrow_tx_params: &BitcoinTransactionParameters<N>,
+        close_merch_signature: &Option<String>,
+        merch_tx_preimage: &Vec<u8>,
+        merch_tx_params: &BitcoinTransactionParameters<N>,
+        from_escrow: bool,
+        merch_pk: &Vec<u8>,
+        cust_sk: &Vec<u8>,
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let sighash_code = SIGHASH_ALL as u32;
+        let private_key = match get_private_key::<N>(cust_sk) {
+            Ok(p) => p,
+            Err(e) => return Err(e.to_string()),
+        };
+        let pk_m = PublicKey::parse_slice(merch_pk, None).unwrap();
+
+        match from_escrow {
+            true => {
+                let escrow_signature = match close_escrow_signature.clone() {
+                    Some(n) => match hex::decode(n) {
+                        Ok(s) => match secp256k1::Signature::parse_slice(&s) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                return Err(format!(
+                                    "error parsing close_escrow_signature = {}",
+                                    e.to_string()
+                                ))
+                            }
+                        },
+                        Err(e) => return Err(e.to_string()),
+                    },
+                    None => {
+                        return Err(String::from(
+                            "do not have a merchant signature on cust-close from escrow tx",
+                        ))
+                    }
+                };
+                let escrow_tx_hash = Sha256::digest(&Sha256::digest(&escrow_tx_preimage));
+                // println!("Tx hash: {}", hex::encode(&merch_tx_hash));
+                let msg = secp256k1::Message::parse_slice(&escrow_tx_hash).unwrap();
+                let escrow_sig_valid = verify(&msg, &escrow_signature, &pk_m);
+                if escrow_sig_valid {
+                    // customer sign the transactions to complete multi-sig and store CT bytes locally
+                    let mut escrow_signature = escrow_signature.serialize_der().as_ref().to_vec();
+                    escrow_signature.push(sighash_code.to_le_bytes()[0]);
+                    let enc_escrow_signature = [
+                        get_var_length_int(escrow_signature.len() as u64).unwrap(),
+                        escrow_signature,
+                    ]
+                    .concat();
+
+                    // sign the cust-close-from-escrow-tx
+                    let (signed_cust_close_escrow_tx, close_escrow_txid, _) =
+                        completely_sign_multi_sig_transaction::<N>(
+                            &escrow_tx_params,
+                            &enc_escrow_signature,
+                            true,
+                            None,
+                            &private_key,
+                        );
+                    let mut close_escrow_txid_le = close_escrow_txid.to_vec();
+                    close_escrow_txid_le.reverse();
+                    let close_escrow_txid = close_escrow_txid_le;
+                    let close_escrow_tx =
+                        signed_cust_close_escrow_tx.to_transaction_bytes().unwrap();
+
+                    Ok((close_escrow_tx, close_escrow_txid))
+                } else {
+                    Err(String::from("<merch-sig> to spend from <escrow-tx> out of sync with current customer state"))
+                }
+            }
+            false => {
+                let merch_signature =
+                    match close_merch_signature.clone() {
+                        Some(n) => match hex::decode(n) {
+                            Ok(s) => match secp256k1::Signature::parse_slice(&s) {
+                                Ok(t) => t,
+                                Err(e) => {
+                                    return Err(format!(
+                                        "error parsing close_merch_signature = {}",
+                                        e.to_string()
+                                    ))
+                                }
+                            },
+                            Err(e) => return Err(e.to_string()),
+                        },
+                        None => return Err(String::from(
+                            "do not have a merchant signature on cust-close from merch-close tx",
+                        )),
+                    };
+
+                // sanity check on the signatures to make sure not out of sync with current state
+                let merch_tx_hash = Sha256::digest(&Sha256::digest(&merch_tx_preimage));
+                // println!("Tx hash: {}", hex::encode(&merch_tx_hash));
+                let msg = secp256k1::Message::parse_slice(&merch_tx_hash).unwrap();
+                let merch_sig_valid = verify(&msg, &merch_signature, &pk_m);
+
+                if merch_sig_valid {
+                    // customer sign the transactions to complete multi-sig and store CT bytes locally
+                    let mut merch_signature = merch_signature.serialize_der().as_ref().to_vec();
+                    merch_signature.push(sighash_code.to_le_bytes()[0]);
+                    let enc_merch_signature = [
+                        get_var_length_int(merch_signature.len() as u64).unwrap(),
+                        merch_signature,
+                    ]
+                    .concat();
+
+                    // sign the cust-close-from-merch-tx
+                    let script_data: Vec<u8> = vec![0x01];
+                    let (signed_cust_close_merch_tx, close_merch_txid, _) =
+                        completely_sign_multi_sig_transaction::<N>(
+                            &merch_tx_params,
+                            &enc_merch_signature,
+                            true,
+                            Some(script_data),
+                            &private_key,
+                        );
+                    let mut close_merch_txid_le = close_merch_txid.to_vec();
+                    close_merch_txid_le.reverse();
+                    let close_merch_txid = close_merch_txid_le;
+                    let close_merch_tx = signed_cust_close_merch_tx.to_transaction_bytes().unwrap();
+
+                    Ok((close_merch_tx, close_merch_txid))
+                } else {
+                    Err(String::from("<merch-sig> to spend from <merch-close-tx> out of sync with current customer state"))
+                }
+            }
+        }
     }
 }
 
@@ -1547,6 +1681,6 @@ mod tests {
 
         let (signed_tx2, _tx_preimage2) =
             transactions::btc::sign_merch_claim_transaction(input2, output, m_private_key).unwrap();
-        println!("Spend from P2WSH: {}", hex::encode(signed_tx2));    
+        println!("Spend from P2WSH: {}", hex::encode(signed_tx2));
     }
 }

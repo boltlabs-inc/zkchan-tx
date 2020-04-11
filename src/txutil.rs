@@ -12,7 +12,7 @@ use wagyu_model::Transaction;
 
 macro_rules! check_pk_length {
     ($x: expr) => {
-        if $x.len() != 33 { 
+        if $x.len() != 33 {
             return Err(format!("{} not a compressed pk", stringify!($x)));
         }
     };
@@ -241,7 +241,7 @@ pub fn merchant_sign_cust_close_claim_transaction(
     index: u32,
     input_sats: i64,
     output_pk: Vec<u8>,
-    merch_sk: Vec<u8>
+    merch_sk: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
     let msk = handle_error!(SecretKey::parse_slice(&merch_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&msk, false);
@@ -260,13 +260,9 @@ pub fn merchant_sign_cust_close_claim_transaction(
         pubkey: output_pk,
     };
 
-    let signed_tx = match transactions::btc::sign_merch_claim_transaction(
-        input,
-        output,
-        sk,
-    ) {
+    let signed_tx = match transactions::btc::sign_merch_claim_transaction(input, output, sk) {
         Ok(s) => s.0,
-        Err(e) => return Err(e.to_string())
+        Err(e) => return Err(e.to_string()),
     };
     Ok(signed_tx)
 }
@@ -280,13 +276,13 @@ pub fn merchant_sign_merch_close_claim_transaction(
     cust_pk: Vec<u8>,
     merch_pk: Vec<u8>,
     merch_close_pk: Vec<u8>,
-    merch_close_sk: Vec<u8>
+    merch_close_sk: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
-    let merch_csk = handle_error!(SecretKey::parse_slice(&merch_close_sk));    
+    let merch_csk = handle_error!(SecretKey::parse_slice(&merch_close_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&merch_csk, false);
     let mut to_self_delay_le = to_self_delay_be.to_vec();
     to_self_delay_le.reverse();
-    
+
     let redeem_script = transactions::btc::serialize_p2wsh_merch_close_redeem_script(
         &cust_pk,
         &merch_pk,
@@ -312,13 +308,9 @@ pub fn merchant_sign_merch_close_claim_transaction(
         pubkey: output_pk,
     };
 
-    let signed_tx = match transactions::btc::sign_merch_claim_transaction(
-        input,
-        output,
-        sk,
-    ) {
+    let signed_tx = match transactions::btc::sign_merch_claim_transaction(input, output, sk) {
         Ok(s) => s.0,
-        Err(e) => return Err(e.to_string())
+        Err(e) => return Err(e.to_string()),
     };
     Ok(signed_tx)
 }

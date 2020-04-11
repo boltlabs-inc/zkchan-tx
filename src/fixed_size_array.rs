@@ -1,6 +1,6 @@
 use super::*;
-use std::fmt;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
+use std::fmt;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq)]
 pub struct FixedSizeArray16(pub [u8; 16]);

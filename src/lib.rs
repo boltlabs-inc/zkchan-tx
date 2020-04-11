@@ -1,13 +1,13 @@
+extern crate hex;
+extern crate serde;
 extern crate wagyu_bitcoin as bitcoin;
 extern crate wagyu_model;
-extern crate serde;
-extern crate hex;
 
-pub mod transactions;
 pub mod fixed_size_array;
+pub mod transactions;
 pub mod txutil;
 
-use secp256k1::{PublicKey, SecretKey, Message, Signature, sign, verify};
+use secp256k1::{sign, verify, Message, PublicKey, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
@@ -24,7 +24,7 @@ mod tests {
 
         // let t = TestSecp { a: pubkey };
         //let s = serde_json::to_string(&pubkey).unwrap();
-        
+
         // println!("Ser pubkey: {:?}", pubkey);
 
         assert_eq!(2 + 2, 4);
