@@ -7,8 +7,16 @@ pub mod fixed_size_array;
 pub mod transactions;
 pub mod txutil;
 
-use secp256k1::{sign, verify, Message, PublicKey, SecretKey, Signature};
+use secp256k1::{verify, PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
+pub use bitcoin::{
+    BitcoinAmount, BitcoinFormat, BitcoinPrivateKey, BitcoinTransaction, BitcoinTransactionInput,
+    BitcoinTransactionOutput, BitcoinTransactionParameters,
+};
+pub use bitcoin::network::BitcoinNetwork;
+pub use wagyu_model::Transaction;
+
+
 
 #[cfg(test)]
 mod tests {
