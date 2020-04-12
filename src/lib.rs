@@ -14,28 +14,5 @@ pub use bitcoin::{
     BitcoinTransactionOutput, BitcoinTransactionParameters,
 };
 pub use bitcoin::network::BitcoinNetwork;
+pub use bitcoin::Testnet;
 pub use wagyu_model::Transaction;
-
-
-
-#[cfg(test)]
-mod tests {
-    //use secp256k1::{PublicKey, SecretKey};
-    //use sha2::{Digest, Sha256};
-
-    /*
-    #[test]
-    fn test_serialize() {
-        let key = [1u8; 32];
-        let seckey = SecretKey::parse_slice(&key).unwrap();
-        let pubkey = PublicKey::from_secret_key(&seckey);
-
-        // let t = TestSecp { a: pubkey };
-        //let s = serde_json::to_string(&pubkey).unwrap();
-
-        // println!("Ser pubkey: {:?}", pubkey);
-
-        assert_eq!(2 + 2, 4);
-    }
-    */
-}
