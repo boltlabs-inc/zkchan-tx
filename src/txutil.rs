@@ -13,10 +13,19 @@ use wagyu_model::Transaction;
 macro_rules! check_pk_length {
     ($x: expr) => {
         if $x.len() != 33 {
-            return Err(format!("{} not a compressed pk", stringify!($x)));
+            return Err(format!("'{}' not a compressed pubkey", stringify!($x)));
         }
     };
 }
+
+macro_rules! check_sk_length {
+    ($x: expr) => {
+        if $x.len() != 32 {
+            return Err(format!("'{}' is not a seckey (need 32 bytes)", stringify!($x)));
+        }
+    };
+}
+
 
 #[macro_export]
 macro_rules! handle_error {
@@ -39,6 +48,7 @@ pub fn customer_sign_escrow_transaction(
     change_pk: Option<Vec<u8>>,
     change_pk_is_hash: bool,
 ) -> Result<(Vec<u8>, [u8; 32], [u8; 32]), String> {
+    check_sk_length!(cust_sk);    
     check_pk_length!(cust_pk);
     check_pk_length!(merch_pk);
     let change_pubkey = match change_pk {
@@ -103,6 +113,7 @@ pub fn customer_sign_merch_close_transaction(
     cust_sk: Vec<u8>,
     merch_tx_preimage: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
+    check_sk_length!(cust_sk);
     // customer signs the preimage and sends signature to merchant
     let csk = handle_error!(SecretKey::parse_slice(&cust_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&csk, false);
@@ -116,6 +127,7 @@ pub fn merchant_verify_merch_close_transaction(
     cust_sig_and_len_byte: &Vec<u8>,
     cust_pk: &Vec<u8>,
 ) -> Result<bool, String> {
+    check_pk_length!(cust_pk);
     let pk = match secp256k1::PublicKey::parse_slice(&cust_pk, None) {
         Ok(n) => n,
         Err(e) => return Err(e.to_string()),
@@ -151,6 +163,7 @@ pub fn merchant_sign_merch_close_transaction(
     merch_sk: Vec<u8>,
 ) -> Result<(Vec<u8>, [u8; 32], [u8; 32]), String> {
     // merchant takes as input the tx params and signs it
+    check_sk_length!(merch_sk);
     let msk = handle_error!(SecretKey::parse_slice(&merch_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&msk, false);
     let (signed_merch_close_tx, txid, hash_prevout) =
@@ -178,6 +191,10 @@ pub fn merchant_sign_merch_dispute_transaction(
     merch_disp_pk: Vec<u8>,
     merch_sk: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
+    check_sk_length!(merch_sk);
+    check_pk_length!(cust_close_pk);
+    check_pk_length!(merch_disp_pk);
+
     let msk = handle_error!(SecretKey::parse_slice(&merch_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&msk, false);
     let output = Output {
@@ -213,6 +230,9 @@ pub fn customer_sign_cust_close_claim_transaction(
     merch_disp_pk: Vec<u8>,
     cust_sk: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
+    check_sk_length!(cust_sk);
+    check_pk_length!(cust_close_pk);
+    check_pk_length!(merch_disp_pk);
     let csk = handle_error!(SecretKey::parse_slice(&cust_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&csk, false);
     let output = Output {
@@ -243,6 +263,8 @@ pub fn merchant_sign_cust_close_claim_transaction(
     output_pk: Vec<u8>,
     merch_sk: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
+    check_sk_length!(merch_sk);
+    check_pk_length!(output_pk);
     let msk = handle_error!(SecretKey::parse_slice(&merch_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&msk, false);
     let input = Input {
@@ -278,6 +300,9 @@ pub fn merchant_sign_merch_close_claim_transaction(
     merch_close_pk: Vec<u8>,
     merch_close_sk: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
+    check_sk_length!(merch_pk);
+    check_pk_length!(merch_close_pk);
+    check_sk_length!(merch_close_sk);
     let merch_csk = handle_error!(SecretKey::parse_slice(&merch_close_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&merch_csk, false);
     let mut to_self_delay_le = to_self_delay_be.to_vec();
@@ -313,22 +338,4 @@ pub fn merchant_sign_merch_close_claim_transaction(
         Err(e) => return Err(e.to_string()),
     };
     Ok(signed_tx)
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn check_customer_sign_escrow_transaction() {
-        assert_eq!(2 + 2, 4);
-    }
-
-    #[test]
-    fn check_customer_sign_cust_close_claim_transaction() {
-        assert_eq!(2 + 2, 4);
-    }
-
-    #[test]
-    fn check_customer_sign_merch_close_transaction() {
-        assert_eq!(2 + 2, 4);
-    }
 }
