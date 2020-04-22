@@ -291,6 +291,7 @@ pub mod btc {
     // output2 => change output to p2wpkh
     pub fn create_escrow_transaction<N: BitcoinNetwork>(
         input: &Input,
+        index: usize,
         output1: &MultiSigOutput,
         output2: &ChangeOutput,
         private_key: BitcoinPrivateKey<N>,
@@ -388,7 +389,7 @@ pub mod btc {
         };
 
         let transaction = BitcoinTransaction::<N>::new(&transaction_parameters).unwrap();
-        let hash_preimage = transaction.segwit_hash_preimage(0, SIGHASH_ALL).unwrap();
+        let hash_preimage = transaction.segwit_hash_preimage(index, SIGHASH_ALL).unwrap();
         // return hash preimage of transaction and the transaction itself (for later signing)
         Ok((hash_preimage, transaction))
     }
@@ -1248,6 +1249,7 @@ mod tests {
         let (escrow_tx_preimage, full_escrow_tx) =
             transactions::btc::create_escrow_transaction::<Testnet>(
                 &input,
+                0,
                 &musig_output,
                 &change_output,
                 private_key.clone(),

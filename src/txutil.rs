@@ -62,6 +62,7 @@ pub fn customer_sign_escrow_transaction(
         None => Vec::new(),
     };
 
+    let input_index = 0;
     let input = Input {
         address_format: "p2sh_p2wpkh",
         transaction_id: txid,
@@ -99,6 +100,7 @@ pub fn customer_sign_escrow_transaction(
     let (_escrow_tx_preimage, full_escrow_tx) =
         handle_error!(create_escrow_transaction::<Testnet>(
             &input,
+            input_index,
             &musig_output,
             &change_output,
             private_key.clone()
