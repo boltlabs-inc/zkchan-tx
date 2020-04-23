@@ -25,6 +25,17 @@ pub struct Input {
     pub sequence: Option<[u8; 4]>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UtxoInput {
+    pub address_format: String,
+    pub transaction_id: Vec<u8>,
+    pub index: u32,
+    pub redeem_script: Option<Vec<u8>>,
+    pub script_pub_key: Option<String>,
+    pub utxo_amount: Option<i64>,
+    pub sequence: Option<[u8; 4]>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Output {
     pub pubkey: Vec<u8>,
@@ -394,6 +405,143 @@ pub mod btc {
         Ok((hash_preimage, transaction))
     }
 
+
+    // form transaction input from UTXO
+    pub fn form_transaction_input<N: BitcoinNetwork>(input: &UtxoInput, private_key: BitcoinPrivateKey<N>) -> Result<BitcoinTransactionInput<N>, String> {
+        // types of UTXO inputs to support
+        let address_format = match input.address_format.as_str() {
+            "p2pkh" => BitcoinFormat::P2PKH,
+            "p2sh_p2wpkh" => BitcoinFormat::P2SH_P2WPKH,
+            "p2wsh" => BitcoinFormat::P2WSH,
+            _ => panic!(
+                "do not currently support specified address format as funding input: {}",
+                input.address_format
+            ),
+        };
+        let address = private_key.to_address(&address_format).unwrap();
+        let redeem_script = match (input.redeem_script.as_ref(), address_format.clone()) {
+            (Some(script), _) => Some(script.clone()),
+            (None, BitcoinFormat::P2SH_P2WPKH) => {
+                let mut redeem_script = vec![0x00, 0x14];
+                redeem_script.extend(&hash160(
+                    &private_key
+                        .to_public_key()
+                        .to_secp256k1_public_key()
+                        .serialize_compressed(),
+                ));
+                println!("redeem_script: {}", hex::encode(&redeem_script));
+                Some(redeem_script)
+            }
+            (None, _) => None,
+        };
+        let script_pub_key = None;        
+//         input
+//             .script_pub_key
+// =            .map(|script| hex::decode(script).unwrap());
+        let sequence = input.sequence.map(|seq| seq.to_vec());
+
+        let transaction_input = BitcoinTransactionInput::<N>::new(
+            input.transaction_id.clone(),
+            input.index,
+            Some(address),
+            Some(BitcoinAmount::from_satoshi(input.utxo_amount.unwrap()).unwrap()),
+            redeem_script,
+            script_pub_key,
+            sequence,
+            SIGHASH_ALL,
+        ).unwrap();
+
+        Ok(transaction_input)
+    }
+
+    // creates a funding transaction with the following input/outputs
+    // input1 & input2 => p2pkh or p2sh_p2wpkh
+    // output0 => multi-sig addr via p2wsh
+    // output1 => change output to p2wpkh (customer)
+    // output1 => change output to p2wpkh (merchant)
+    pub fn form_dual_escrow_transaction<N: BitcoinNetwork>(
+        inputs: &Vec<BitcoinTransactionInput<N>>,
+        index: usize,
+        output0: &MultiSigOutput,
+        change_outputs: &Vec<ChangeOutput>
+    ) -> Result<(Vec<u8>, BitcoinTransaction<N>), String> {
+        // check that specified public keys are valid
+        check_pk_valid!(output0.cust_pubkey);
+        check_pk_valid!(output0.merch_pubkey);
+
+        let version = 2;
+        let lock_time = 0;
+
+        let mut output_vec = vec![];
+
+        // add multi-sig output as P2WSH output
+        let output0_script_pubkey =
+            create_p2wsh_scriptpubkey::<N>(&output0.cust_pubkey, &output0.merch_pubkey);
+        // println!(
+        //     "multi-sig script pubkey: {}",
+        //     hex::encode(&output0_script_pubkey)
+        // );
+        let multisig_output = BitcoinTransactionOutput {
+            amount: BitcoinAmount(output0.amount),
+            script_pub_key: output0_script_pubkey,
+        };
+        // let out0 = multisig_output.serialize().unwrap();
+        // println!("multisig_output script pubkey: {}", hex::encode(out0));
+        output_vec.push(multisig_output);
+        
+        // add P2WPKH change output
+        for output in change_outputs {
+            let output1_script_pubkey =
+                create_p2wpkh_scriptpubkey::<N>(&output.pubkey, output.is_hash);
+            let change_output = BitcoinTransactionOutput {
+                amount: BitcoinAmount(output.amount),
+                script_pub_key: output1_script_pubkey,
+            };
+
+            // debug
+            // let out1 = change_output.serialize().unwrap();
+            // println!("change output script pubkey: {}", hex::encode(out1));
+
+            output_vec.push(change_output);
+        }
+
+        let transaction_parameters = BitcoinTransactionParameters::<N> {
+            version: version,
+            inputs: inputs.clone(),
+            outputs: output_vec,
+            lock_time: lock_time,
+            segwit_flag: true,
+        };
+
+        let transaction = BitcoinTransaction::<N>::new(&transaction_parameters).unwrap();
+        let hash_preimage = transaction.segwit_hash_preimage(index, SIGHASH_ALL).unwrap();
+        // return hash preimage of transaction and the transaction itself (for later signing)
+        Ok((hash_preimage, transaction))
+    }
+
+    pub fn cust_sign_dual_escrow_transaction<N: BitcoinNetwork>(
+        inputs: &Vec<BitcoinTransactionInput<N>>,
+        vin: usize,
+        output0: &MultiSigOutput,
+        change_outputs: &Vec<ChangeOutput>,
+        private_key: &BitcoinPrivateKey<N>
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+
+        // form the dual escrow transaction first
+        let (tx_preimage, _) = form_dual_escrow_transaction(inputs, vin, output0, change_outputs).unwrap();
+
+        // generate the signature on preimage and encode the public key
+        let cust_signature = generate_signature_for_multi_sig_transaction::<
+            N,
+        >(&tx_preimage, private_key)
+        .unwrap();
+
+        // encode the public key
+        let cust_public_key = encode_public_key_for_transaction::<N>(BitcoinFormat::P2SH_P2WPKH, private_key);
+
+        Ok((cust_signature, cust_public_key))
+    }
+
     // signs a given transaction using a specified private key
     // assumes that transaction has already been loaded
     pub fn sign_escrow_transaction<N: BitcoinNetwork>(
@@ -456,6 +604,18 @@ pub mod btc {
         hash_prevout.copy_from_slice(&result);
 
         Ok((txid_buf_be, hash_prevout))
+    }
+
+    pub fn encode_public_key_for_transaction<N: BitcoinNetwork>(address_format: BitcoinFormat, private_key: &BitcoinPrivateKey<N>) -> Vec<u8> {
+        let public_key = private_key.to_public_key();
+        let public_key_bytes = match (&address_format, public_key.is_compressed()) {
+            (BitcoinFormat::P2PKH, false) => {
+                public_key.to_secp256k1_public_key().serialize().to_vec()
+            }
+            _ => public_key.to_secp256k1_public_key().serialize_compressed().to_vec(),
+        };
+        let public_key = [vec![public_key_bytes.len() as u8], public_key_bytes].concat();
+        return public_key;
     }
 
     pub fn completely_sign_multi_sig_transaction<N: BitcoinNetwork>(
@@ -1182,7 +1342,7 @@ mod tests {
     use transactions::{Input, MultiSigOutput, Output};
 
     #[test]
-    fn test_bitcoin_p2wsh_address() {
+    fn bitcoin_p2wsh_address() {
         let expected_scriptpubkey =
             hex::decode("0020c015c4a6be010e21657068fc2e6a9d02b27ebe4d490a25846f7237f104d1a3cd")
                 .unwrap();
@@ -1204,7 +1364,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bitcoin_testnet_escrow_tx() {
+    fn bitcoin_testnet_escrow_tx() {
         let input = Input {
             address_format: "p2sh_p2wpkh",
             transaction_id: hex::decode(
@@ -1272,7 +1432,148 @@ mod tests {
     }
 
     #[test]
-    fn test_bitcoin_testnet_merch_close_tx() {
+    fn bitcoin_serialize_utxo_input() {
+        let input = UtxoInput {
+            address_format: String::from("p2sh_p2wpkh"),
+            transaction_id: hex::decode(
+                "cf6f93e3367f9925de957303af97b4be67060437bde3785d6b465d19ebac861b",
+            )
+            .unwrap(),
+            index: 0,
+            redeem_script: None,
+            script_pub_key: None,
+            utxo_amount: Some(3 * SATOSHI),
+            sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+        };
+
+        let ser_input = serde_json::to_string(&input).unwrap();
+
+        println!("Ser input: {:?}", &ser_input);
+
+        let rec_input: UtxoInput = serde_json::from_str(&ser_input).unwrap();
+        assert_eq!(input, rec_input);
+    }
+
+    #[test]
+    fn bitcoin_testnet_dual_funded_escrow_tx() {
+        let cust_input = UtxoInput {
+            address_format: String::from("p2sh_p2wpkh"),
+            transaction_id: hex::decode(
+                "cf6f93e3367f9925de957303af97b4be67060437bde3785d6b465d19ebac861b",
+            )
+            .unwrap(),
+            index: 0,
+            redeem_script: None,
+            script_pub_key: None,
+            utxo_amount: Some(3 * SATOSHI),
+            sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+        };
+
+        let merch_input = UtxoInput {
+            address_format: String::from("p2sh_p2wpkh"),
+            transaction_id: hex::decode(
+                "bf6f93e3367f9925de957303af97b4be67060437bde3785d6b465d19ebac861f",
+            )
+            .unwrap(),
+            index: 0,
+            redeem_script: None,
+            script_pub_key: None,
+            utxo_amount: Some(4 * SATOSHI),
+            sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+        };
+
+
+        let cust_private_key = BitcoinPrivateKey::<Testnet>::from_str(
+            "cPmiXrwUfViwwkvZ5NXySiHEudJdJ5aeXU4nx4vZuKWTUibpJdrn",
+        )
+        .unwrap();        
+
+        let merch_private_key = BitcoinPrivateKey::<Testnet>::from_str(
+            "cNTSD7W8URSCmfPTvNf2B5gyKe2wwyNomkCikVhuHPCsFgBUKrAV",
+        )
+        .unwrap();        
+
+        let mut cust_tx_input = transactions::btc::form_transaction_input::<Testnet>(&cust_input, cust_private_key.clone()).unwrap();        
+
+        let merch_tx_input = transactions::btc::form_transaction_input::<Testnet>(&merch_input, merch_private_key.clone()).unwrap();
+
+        // output 1 - multi-sig
+        let musig_output = MultiSigOutput {
+            merch_pubkey: hex::decode(
+                "021df2e472ce4f5f76100a45f04f75bf8742a796a07a6abfc8ed2b9939588b981a",
+            )
+            .unwrap(),
+            cust_pubkey: hex::decode(
+                "0250a33b5a379c2143c7deb27345a4f16d6f766fbf31c4a477e64050b5ec506f03",
+            )
+            .unwrap(),
+            address_format: "p2wsh",
+            amount: 4 * SATOSHI,
+        };
+
+        let cust_change_output = ChangeOutput {
+            pubkey: hex::decode(
+                "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+            )
+            .unwrap(),
+            amount: (1 * SATOSHI),
+            is_hash: false,
+        };
+
+        let merch_change_output = ChangeOutput {
+            pubkey: hex::decode(
+                "02bf610ccd27d24b9718abb272fef97d3d342f083b3c6d495c05d98c0dd875fe41",
+            )
+            .unwrap(),
+            amount: (2 * SATOSHI),
+            is_hash: false,
+        };
+
+        let change_outputs = vec![cust_change_output, merch_change_output];
+
+        // test forming tx preimage for customer side
+        let inputs = vec![cust_tx_input.clone(), merch_tx_input.clone()];
+        let (cust_tx_preimage, _) = transactions::btc::form_dual_escrow_transaction(&inputs, 0, &musig_output, &change_outputs).unwrap();
+
+        let expected_cust_preimage = "0200000001ffca6fcff6dce2963645252d5ff62ca3cf5a96a0e2ca01843f3080cddec56d752adad0a7b9ceca853768aebb6965eca126a62965f698a0c1bc43d83db632ad1b86aceb195d466b5d78e3bd37040667beb497af037395de25997f36e3936fcf000000001976a914a496306b960746361e3528534d04b1ac4726655a88ac00a3e11100000000ffffffff383ecd581d0ebd249748cc736d6e333d55d2f1c413c458233eeb7a677f6a7c880000000001000000";
+        assert_eq!(expected_cust_preimage, hex::encode(&cust_tx_preimage));
+        println!("Tx preimage (cust) => {}", hex::encode(&cust_tx_preimage));
+
+        // TODO: add a method to form/get txid for escrow transaction
+
+        // let's sign the dual escrow transaction
+        let (cust_signature, cust_public_key) = transactions::btc::cust_sign_dual_escrow_transaction::<Testnet>(&inputs, 0, &musig_output, &change_outputs, &cust_private_key).unwrap();
+
+        // add signature and public key to input struct
+        // if p2sh_p2wpkh
+        cust_tx_input.witnesses.append(&mut vec![cust_signature.clone(), cust_public_key.clone()]);
+        let input_script = match &cust_tx_input.outpoint.redeem_script {
+            Some(redeem_script) => redeem_script.clone(),
+            None => panic!("Invalid input_script!"),
+        };
+        cust_tx_input.script_sig = [vec![input_script.len() as u8], input_script].concat();
+        cust_tx_input.is_signed = true;
+
+        // include updated cust_tx_input (with witness)
+        let input_vec = vec![cust_tx_input.clone(), merch_tx_input.clone()];
+
+        // merchant moves forward to sign their UTXO as well 
+        let (_, escrow_unsigned_tx) = transactions::btc::form_dual_escrow_transaction(&input_vec, 1, &musig_output, &change_outputs).unwrap();
+     
+        let signed_escrow_tx = escrow_unsigned_tx.sign(&merch_private_key).unwrap();
+        let signed_escrow_tx_raw = signed_escrow_tx.to_transaction_bytes().unwrap();
+        println!("signed_tx: {}", hex::encode(signed_escrow_tx_raw));
+
+
+        // let (merch_tx_preimage, _) = transactions::btc::form_dual_escrow_transaction(&inputs, 1, &musig_output, &change_outputs).unwrap();
+        // let expected_merch_preimage = "0200000001ffca6fcff6dce2963645252d5ff62ca3cf5a96a0e2ca01843f3080cddec56d752adad0a7b9ceca853768aebb6965eca126a62965f698a0c1bc43d83db632ad1f86aceb195d466b5d78e3bd37040667beb497af037395de25997f36e3936fbf000000001976a91475a4b47419fc5103559444c28cca8e2b04f7680688ac0084d71700000000ffffffff383ecd581d0ebd249748cc736d6e333d55d2f1c413c458233eeb7a677f6a7c880000000001000000";
+        // assert_eq!(expected_merch_preimage, hex::encode(&merch_tx_preimage));
+        // println!("Tx preimage (merch) => {}", hex::encode(merch_tx_preimage));
+
+    }
+
+    #[test]
+    fn bitcoin_testnet_merch_close_tx() {
         // construct redeem script for this transaction to be able to spend from escrow-tx
         let cust_pk =
             hex::decode("027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb")
@@ -1355,7 +1656,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bitcoin_testnet_cust_close_from_escrow_tx() {
+    fn bitcoin_testnet_cust_close_from_escrow_tx() {
         let spend_from_escrow = true;
         let input = Input {
             address_format: "p2wsh",
@@ -1446,7 +1747,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bitcoin_testnet_cust_close_from_merch_tx() {
+    fn bitcoin_testnet_cust_close_from_merch_tx() {
         let spend_from_escrow = false;
         let input = Input {
             address_format: "p2wsh",
@@ -1510,7 +1811,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sign_merch_dispute_transaction() {
+    fn sign_merch_dispute_transaction() {
         // testing merchant dispute the `to_customer` output in the cust-close-*-tx during dispute period (via timelock)
         let txid_le =
             hex::decode("f4df16149735c2963832ccaa9627f4008a06291e8b932c2fc76b3a5d62d462e1")
@@ -1561,7 +1862,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sign_cust_claim_transaction() {
+    fn sign_cust_claim_transaction() {
         // testing customer claiming the `to_customer` output in the cust-close-*tx after timelock
         let txid_le =
             hex::decode("f4df16149735c2963832ccaa9627f4008a06291e8b932c2fc76b3a5d62d462e1")
@@ -1611,7 +1912,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sign_merch_claim_transactions() {
+    fn sign_merch_claim_transactions() {
         // case 1 - testing merchant claiming the `to_merchant` output in the cust-close-*-tx (spendable immediately)
         let utxo_amount = 1 * SATOSHI;
         let input1 = Input {
