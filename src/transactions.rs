@@ -260,13 +260,13 @@ pub mod btc {
         return ret_val;
     }
 
-    pub fn create_reverse_input(txid_be: &[u8; 32], index: u32, input_amount: i64) -> Input {
+    pub fn create_reverse_input(txid_be: &[u8; 32], index: u32, input_amount: i64) -> UtxoInput {
         let mut txid_buf_le = txid_be.clone();
         txid_buf_le.reverse();
         // let txid_str = hex::encode(&txid_buf);
         // println!("txid: {}", txid_str);
-        Input {
-            address_format: "p2wsh",
+        UtxoInput {
+            address_format: String::from("p2wsh"),
             // outpoint
             transaction_id: txid_buf_le.to_vec(),
             index: index,
