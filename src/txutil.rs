@@ -7,7 +7,7 @@ use transactions::btc::{
     generate_signature_for_multi_sig_transaction, merch_generate_transaction_id,
     sign_cust_close_claim_transaction, sign_escrow_transaction, sign_merch_dispute_transaction,
 };
-use transactions::{ChangeOutput, Input, MultiSigOutput, Output};
+use transactions::{ChangeOutput, UtxoInput, MultiSigOutput, Output};
 use wagyu_model::Transaction;
 
 macro_rules! check_pk_length {
@@ -21,11 +21,13 @@ macro_rules! check_pk_length {
 macro_rules! check_sk_length {
     ($x: expr) => {
         if $x.len() != 32 {
-            return Err(format!("'{}' is not a seckey (need 32 bytes)", stringify!($x)));
+            return Err(format!(
+                "'{}' is not a seckey (need 32 bytes)",
+                stringify!($x)
+            ));
         }
     };
 }
-
 
 #[macro_export]
 macro_rules! handle_error {
@@ -48,7 +50,7 @@ pub fn customer_sign_escrow_transaction(
     change_pk: Option<Vec<u8>>,
     change_pk_is_hash: bool,
 ) -> Result<(Vec<u8>, [u8; 32], [u8; 32]), String> {
-    check_sk_length!(cust_sk);    
+    check_sk_length!(cust_sk);
     check_pk_length!(cust_pk);
     check_pk_length!(merch_pk);
     let change_pubkey = match change_pk {
@@ -63,8 +65,8 @@ pub fn customer_sign_escrow_transaction(
     };
 
     let input_index = 0;
-    let input = Input {
-        address_format: "p2sh_p2wpkh",
+    let input = UtxoInput {
+        address_format: String::from("p2sh_p2wpkh"),
         transaction_id: txid,
         index: index,
         redeem_script: None,
@@ -269,8 +271,8 @@ pub fn merchant_sign_cust_close_claim_transaction(
     check_pk_length!(output_pk);
     let msk = handle_error!(SecretKey::parse_slice(&merch_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&msk, false);
-    let input = Input {
-        address_format: "p2wpkh",
+    let input = UtxoInput {
+        address_format: String::from("p2wpkh"),
         transaction_id: txid_le,
         index: index,
         redeem_script: None,
@@ -320,8 +322,8 @@ pub fn merchant_sign_merch_close_claim_transaction(
     let mut sequence = [0u8; 4];
     sequence.copy_from_slice(to_self_delay_le.as_slice());
 
-    let input = Input {
-        address_format: "p2wsh",
+    let input = UtxoInput {
+        address_format: String::from("p2wsh"),
         transaction_id: txid_le,
         index: index,
         redeem_script: Some(redeem_script),
