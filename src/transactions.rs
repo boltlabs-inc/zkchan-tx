@@ -400,7 +400,8 @@ pub mod btc {
     // form transaction input from UTXO
     pub fn form_transaction_input<N: BitcoinNetwork>(
         input: &UtxoInput,
-        private_key: BitcoinPrivateKey<N>,
+        address: &BitcoinAddress<N>,
+        input_pk: &Vec<u8>
     ) -> Result<BitcoinTransactionInput<N>, String> {
         // types of UTXO inputs to support
         let address_format = match input.address_format.as_str() {
@@ -412,18 +413,14 @@ pub mod btc {
                 input.address_format
             ),
         };
-        let address = private_key.to_address(&address_format).unwrap();
         let redeem_script = match (input.redeem_script.as_ref(), address_format.clone()) {
             (Some(script), _) => Some(script.clone()),
             (None, BitcoinFormat::P2SH_P2WPKH) => {
                 let mut redeem_script = vec![0x00, 0x14];
                 redeem_script.extend(&hash160(
-                    &private_key
-                        .to_public_key()
-                        .to_secp256k1_public_key()
-                        .serialize_compressed(),
+                    input_pk
                 ));
-                println!("redeem_script: {}", hex::encode(&redeem_script));
+                // println!("redeem_script: {}", hex::encode(&redeem_script));
                 Some(redeem_script)
             }
             (None, _) => None,
@@ -436,7 +433,7 @@ pub mod btc {
         let transaction_input = BitcoinTransactionInput::<N>::new(
             input.transaction_id.clone(),
             input.index,
-            Some(address),
+            Some(address.clone()),
             Some(BitcoinAmount::from_satoshi(input.utxo_amount.unwrap()).unwrap()),
             redeem_script,
             script_pub_key,
@@ -483,7 +480,7 @@ pub mod btc {
         // println!("multisig_output script pubkey: {}", hex::encode(out0));
         output_vec.push(multisig_output);
 
-        // add P2WPKH change output
+        // OPTIONAL: add P2WPKH change output 
         for output in change_outputs {
             let output1_script_pubkey =
                 create_p2wpkh_scriptpubkey::<N>(&output.pubkey, output.is_hash);
@@ -1493,15 +1490,23 @@ mod tests {
         )
         .unwrap();
 
+        let cust_address = cust_private_key.to_address(&BitcoinFormat::P2SH_P2WPKH).unwrap();
+        let cust_input_pk = cust_private_key.to_public_key().to_secp256k1_public_key().serialize_compressed().to_vec();
+
         let mut cust_tx_input = transactions::btc::form_transaction_input::<Testnet>(
             &cust_input,
-            cust_private_key.clone(),
+            &cust_address,
+            &cust_input_pk
         )
         .unwrap();
 
+        let merch_address = merch_private_key.to_address(&BitcoinFormat::P2SH_P2WPKH).unwrap();
+        let merch_input_pk = merch_private_key.to_public_key().to_secp256k1_public_key().serialize_compressed().to_vec();
+
         let merch_tx_input = transactions::btc::form_transaction_input::<Testnet>(
             &merch_input,
-            merch_private_key.clone(),
+            &merch_address,
+            &merch_input_pk
         )
         .unwrap();
 
@@ -1565,6 +1570,8 @@ mod tests {
                 &cust_private_key,
             )
             .unwrap();
+
+        println!("Tx Signature: {}", hex::encode(&cust_signature));
 
         // add signature and public key to input struct
         // if p2sh_p2wpkh
