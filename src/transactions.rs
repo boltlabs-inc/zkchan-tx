@@ -832,6 +832,9 @@ pub mod btc {
         self_delay_be: &[u8; 2],
         cust_bal: i64,
         merch_bal: i64,
+        fee_cc: i64,
+        fee_mc: i64,
+        val_cpfp: i64,
         from_escrow: bool,
     ) -> (
         Vec<u8>,
@@ -901,8 +904,9 @@ pub mod btc {
         );
 
         // println!("(1) to_customer: {}", hex::encode(&output1_script_pubkey));
+        let to_cust_amount = cust_bal - fee_cc - val_cpfp;
         let to_customer = BitcoinTransactionOutput {
-            amount: BitcoinAmount::from_satoshi(cust_bal).unwrap(),
+            amount: BitcoinAmount::from_satoshi(to_cust_amount).unwrap(),
             script_pub_key: output1_script_pubkey,
         };
         // println!("to_customer: {}", hex::encode(to_customer.serialize().unwrap()));
@@ -910,8 +914,12 @@ pub mod btc {
         // output 2: P2WPKH output to merchant
         let output2_script_pubkey = create_p2wpkh_scriptpubkey::<N>(&pubkeys.merch_close_pk, false);
         // println!("(2) to_merchant: {}", hex::encode(&output2_script_pubkey));
+        let to_merch_amount = match from_escrow {
+            true => merch_bal,
+            false => merch_bal - fee_mc - val_cpfp,
+        };
         let to_merchant = BitcoinTransactionOutput {
-            amount: BitcoinAmount::from_satoshi(merch_bal).unwrap(),
+            amount: BitcoinAmount::from_satoshi(to_merch_amount).unwrap(),
             script_pub_key: output2_script_pubkey,
         };
         // println!("to_merchant: {}", hex::encode(to_merchant.serialize().unwrap()));
@@ -926,10 +934,20 @@ pub mod btc {
         };
         // println!("op_return: {}", hex::encode(op_return_out.serialize().unwrap()));
 
+        // output 4: P2WPKH output to cust child
+        let output4_script_pubkey = create_p2wpkh_scriptpubkey::<N>(&pubkeys.cust_close_pk, false);
+        // println!("(2) to_merchant: {}", hex::encode(&output4_script_pubkey));
+        let cpfp = BitcoinTransactionOutput {
+            amount: BitcoinAmount::from_satoshi(val_cpfp).unwrap(),
+            script_pub_key: output4_script_pubkey,
+        };
+        // println!("to_merchant: {}", hex::encode(cpfp.serialize().unwrap()));
+
         let mut output_vec = vec![];
         output_vec.push(to_customer);
         output_vec.push(to_merchant);
         output_vec.push(op_return_out);
+        output_vec.push(cpfp);
 
         let transaction_parameters = BitcoinTransactionParameters::<N> {
             version: version,
