@@ -1756,6 +1756,9 @@ mod tests {
 
         let cust_bal = 8 * SATOSHI;
         let merch_bal = 2 * SATOSHI;
+        let fee_cc = 1 * SATOSHI;
+        let fee_mc = 1 * SATOSHI;
+        let val_cpfp = 1 * SATOSHI;
         let to_self_delay: [u8; 2] = [0x05, 0xcf]; // big-endian format
         let (tx_preimage, tx_params, _) = transactions::btc::create_cust_close_transaction::<Testnet>(
             &input,
@@ -1763,13 +1766,16 @@ mod tests {
             &to_self_delay,
             cust_bal,
             merch_bal,
+            fee_cc,
+            fee_mc,
+            val_cpfp,
             spend_from_escrow,
         );
         println!(
             "cust-close from escrow tx raw preimage: {}",
             hex::encode(&tx_preimage)
         );
-        let expected_tx_preimage = hex::decode("020000007d03c85ecc9a0046e13c0dcc05c3fb047762275cb921ca150b6f6b616bd3d7383bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e70665044e162d4625d3a6bc72f2c938b1e29068a00f42796aacc323896c235971416dff40000000047522103af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb35321027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb52ae00ca9a3b00000000ffffffff73bca1a59fcb04fe71d242be5d73021d02bbc6cdec66e9cb963060ff5028928e0000000001000000").unwrap();
+        let expected_tx_preimage = hex::decode("020000007d03c85ecc9a0046e13c0dcc05c3fb047762275cb921ca150b6f6b616bd3d7383bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e70665044e162d4625d3a6bc72f2c938b1e29068a00f42796aacc323896c235971416dff40000000047522103af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb35321027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb52ae00ca9a3b00000000ffffffffc99bb6a5f54ca45860551116f8e20ca94a804827dec90fc5deeb4c758281d2060000000001000000").unwrap();
         assert_eq!(tx_preimage, expected_tx_preimage);
 
         // merchant signs the preimage (note this would happen via MPC)
@@ -1846,6 +1852,9 @@ mod tests {
 
         let cust_bal = 8 * SATOSHI;
         let merch_bal = 2 * SATOSHI;
+        let fee_cc = 1 * SATOSHI;
+        let fee_mc = 1 * SATOSHI;
+        let val_cpfp = 1 * SATOSHI;
         let to_self_delay_be: [u8; 2] = [0x05, 0xcf]; // big-endian format
         let (tx_preimage, _, _) = transactions::btc::create_cust_close_transaction::<Testnet>(
             &input,
@@ -1853,13 +1862,16 @@ mod tests {
             &to_self_delay_be,
             cust_bal,
             merch_bal,
+            fee_cc,
+            fee_mc,
+            val_cpfp,
             spend_from_escrow,
         );
         println!(
             "cust-close from merch tx raw preimage: {}",
             hex::encode(&tx_preimage)
         );
-        let expected_tx_preimage = hex::decode("020000007d03c85ecc9a0046e13c0dcc05c3fb047762275cb921ca150b6f6b616bd3d7383bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e70665044e162d4625d3a6bc72f2c938b1e29068a00f42796aacc323896c235971416dff40000000072635221024596d7b33733c28101dbc6c85901dffaed0cdac63ab0b2ea141217d1990ad4b121027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb52ae6702cf05b2752102ab573100532827bd0e44b4353e4eaa9c79afbc93f69454a4a44d9fea8c45b5afac6800ca9a3b00000000ffffffff73bca1a59fcb04fe71d242be5d73021d02bbc6cdec66e9cb963060ff5028928e0000000001000000").unwrap();
+        let expected_tx_preimage = hex::decode("020000007d03c85ecc9a0046e13c0dcc05c3fb047762275cb921ca150b6f6b616bd3d7383bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e70665044e162d4625d3a6bc72f2c938b1e29068a00f42796aacc323896c235971416dff40000000072635221024596d7b33733c28101dbc6c85901dffaed0cdac63ab0b2ea141217d1990ad4b121027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb52ae6702cf05b2752102ab573100532827bd0e44b4353e4eaa9c79afbc93f69454a4a44d9fea8c45b5afac6800ca9a3b00000000ffffffff99a84d14a96ae4e80f5969402d4d39b14696b8c33901d642f6ab0618540ef8a90000000001000000").unwrap();
         assert_eq!(tx_preimage, expected_tx_preimage);
     }
 
