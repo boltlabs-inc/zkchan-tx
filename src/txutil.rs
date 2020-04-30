@@ -723,25 +723,7 @@ mod tests {
         let cust_change_pk = Some((hex::decode("034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa").unwrap(), false));
         let merch_change_pk = Some((hex::decode("02bf610ccd27d24b9718abb272fef97d3d342f083b3c6d495c05d98c0dd875fe41").unwrap(), false));
 
-        // now we can form a transaction
-        // let escrow_tx = customer_sign_dual_escrow_transaction(
-        //     &cust_utxo, 
-        //     &merch_utxo,
-        //     cust_funding_sats,
-        //     merch_funding_sats,
-        //     &cust_pk,
-        //     &merch_pk,
-        //     cust_change_pk.clone(),
-        //     merch_change_pk.clone(),
-        //     false,
-        //     None
-        // ).unwrap();
-        
-        // // output the fields
-        // println!("txid BE: {}", hex::encode(&escrow_tx.txid_be));
-        // println!("txid LE: {}", hex::encode(&escrow_tx.txid_le));
-        // println!("txid prevout: {}", hex::encode(&escrow_tx.prevout));
-
+        // now we can sign/form a transaction
         let escrow_tx = customer_sign_dual_escrow_transaction(
             &cust_utxo, 
             &merch_utxo,
