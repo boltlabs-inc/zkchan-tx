@@ -277,6 +277,18 @@ pub mod btc {
         }
     }
 
+    pub fn create_utxo_input(txid_le: &[u8; 32], index: u32, input_amount: i64) -> UtxoInput {
+        UtxoInput {
+            address_format: String::from("p2wsh"),
+            transaction_id: txid_le.to_vec(),
+            index: index,
+            redeem_script: None,
+            script_pub_key: None,
+            utxo_amount: Some(input_amount),
+            sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+        }
+    }
+
     macro_rules! check_pk_valid {
         ($x: expr) => {
             match secp256k1::PublicKey::parse_slice(&$x, None) {
