@@ -14,7 +14,7 @@ use wagyu_model::Transaction;
 macro_rules! check_pk_length {
     ($x: expr) => {
         if $x.len() != 33 {
-            return Err(format!("'{}' not a compressed pubkey", stringify!($x)));
+            return Err(format!("{} not a compressed pubkey", stringify!($x)));
         }
     };
 }
@@ -23,7 +23,7 @@ macro_rules! check_sk_length {
     ($x: expr) => {
         if $x.len() != 32 {
             return Err(format!(
-                "'{}' is not a seckey (need 32 bytes)",
+                "{} is not a seckey (need 32 bytes)",
                 stringify!($x)
             ));
         }
