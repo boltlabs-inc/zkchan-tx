@@ -609,7 +609,7 @@ pub fn merchant_sign_merch_close_claim_transaction(
     merch_close_pk: Vec<u8>,
     merch_close_sk: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
-    check_sk_length!(merch_pk);
+    check_pk_length!(merch_pk);
     check_pk_length!(merch_close_pk);
     check_sk_length!(merch_close_sk);
     let merch_csk = handle_error!(SecretKey::parse_slice(&merch_close_sk));
