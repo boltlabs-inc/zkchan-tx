@@ -345,7 +345,8 @@ pub mod btc {
             (None, _) => None,
         };
         let script_pub_key = input
-            .script_pub_key.as_ref()
+            .script_pub_key
+            .as_ref()
             .map(|script| hex::decode(script).unwrap());
         let sequence = input.sequence.map(|seq| seq.to_vec());
 
@@ -413,7 +414,7 @@ pub mod btc {
     pub fn form_transaction_input<N: BitcoinNetwork>(
         input: &UtxoInput,
         address: &BitcoinAddress<N>,
-        input_pk: &Vec<u8>
+        input_pk: &Vec<u8>,
     ) -> Result<BitcoinTransactionInput<N>, String> {
         // types of UTXO inputs to support
         let address_format = match input.address_format.as_str() {
@@ -429,16 +430,16 @@ pub mod btc {
             (Some(script), _) => Some(script.clone()),
             (None, BitcoinFormat::P2SH_P2WPKH) => {
                 let mut redeem_script = vec![0x00, 0x14];
-                redeem_script.extend(&hash160(
-                    input_pk
-                ));
+                redeem_script.extend(&hash160(input_pk));
                 // println!("redeem_script: {}", hex::encode(&redeem_script));
                 Some(redeem_script)
             }
             (None, _) => None,
         };
-        let script_pub_key = input.script_pub_key.as_ref()
-                    .map(|script| hex::decode(script).unwrap());
+        let script_pub_key = input
+            .script_pub_key
+            .as_ref()
+            .map(|script| hex::decode(script).unwrap());
 
         let sequence = input.sequence.map(|seq| seq.to_vec());
 
@@ -517,10 +518,9 @@ pub mod btc {
         Ok((hash_preimage, transaction))
     }
 
-
     pub fn compute_transaction_id_without_witness<N: BitcoinNetwork>(
         unsigned_tx: BitcoinTransaction<N>,
-        private_key: BitcoinPrivateKey<N>
+        private_key: BitcoinPrivateKey<N>,
     ) -> Result<([u8; 32], [u8; 32], [u8; 32]), String> {
         // TODO: figure out why signing is required to get the correct transaction id
         let signed_tx = unsigned_tx.sign(&private_key).unwrap();
@@ -534,13 +534,13 @@ pub mod btc {
         let mut txid_buf_be = txid_buf.clone();
         txid_buf_be.reverse();
         let txid_buf_le = txid_buf.clone();
-    
+
         let mut prevout_preimage: Vec<u8> = Vec::new();
         prevout_preimage.extend(txid_buf_be.iter()); // txid (big endian)
         prevout_preimage.extend(vec![0x00, 0x00, 0x00, 0x00]); // index
         let result = Sha256::digest(&Sha256::digest(&prevout_preimage));
         hash_prevout.copy_from_slice(&result);
-    
+
         Ok((txid_buf_be, txid_buf_le, hash_prevout))
     }
 
@@ -579,7 +579,7 @@ pub mod btc {
         // println!("multisig_output script pubkey: {}", hex::encode(out0));
         output_vec.push(multisig_output);
 
-        // OPTIONAL: add P2WPKH change output 
+        // OPTIONAL: add P2WPKH change output
         for output in change_outputs {
             let output1_script_pubkey =
                 create_p2wpkh_scriptpubkey::<N>(&output.pubkey, output.is_hash);
@@ -856,7 +856,8 @@ pub mod btc {
         );
         // output 1: multi signature output
         let musig_output = BitcoinTransactionOutput {
-            amount: BitcoinAmount::from_satoshi(input.utxo_amount.unwrap() - val_cpfp - fee_mc).unwrap(),
+            amount: BitcoinAmount::from_satoshi(input.utxo_amount.unwrap() - val_cpfp - fee_mc)
+                .unwrap(),
             script_pub_key: musig_script_pubkey,
         };
         // output 2: CPFP P2WPKH output to merch child
@@ -1395,7 +1396,11 @@ pub mod btc {
                     let close_escrow_tx =
                         signed_cust_close_escrow_tx.to_transaction_bytes().unwrap();
 
-                    Ok((close_escrow_tx, close_escrow_txid_be.to_vec(), close_escrow_txid_le))
+                    Ok((
+                        close_escrow_tx,
+                        close_escrow_txid_be.to_vec(),
+                        close_escrow_txid_le,
+                    ))
                 } else {
                     Err(String::from("<merch-sig> to spend from <escrow-tx> out of sync with current customer state"))
                 }
@@ -1450,7 +1455,11 @@ pub mod btc {
                     close_merch_txid_le.reverse();
                     let close_merch_tx = signed_cust_close_merch_tx.to_transaction_bytes().unwrap();
 
-                    Ok((close_merch_tx, close_merch_txid_be.to_vec(), close_merch_txid_le))
+                    Ok((
+                        close_merch_tx,
+                        close_merch_txid_be.to_vec(),
+                        close_merch_txid_le,
+                    ))
                 } else {
                     Err(String::from("<merch-sig> to spend from <merch-close-tx> out of sync with current customer state"))
                 }
@@ -1467,7 +1476,7 @@ mod tests {
     use super::*;
     use bitcoin::Testnet;
     use std::str::FromStr;
-    use transactions::{UtxoInput, MultiSigOutput, Output};
+    use transactions::{MultiSigOutput, Output, UtxoInput};
 
     #[test]
     fn bitcoin_p2wsh_address() {
@@ -1620,23 +1629,35 @@ mod tests {
         )
         .unwrap();
 
-        let cust_address = cust_private_key.to_address(&BitcoinFormat::P2SH_P2WPKH).unwrap();
-        let cust_input_pk = cust_private_key.to_public_key().to_secp256k1_public_key().serialize_compressed().to_vec();
+        let cust_address = cust_private_key
+            .to_address(&BitcoinFormat::P2SH_P2WPKH)
+            .unwrap();
+        let cust_input_pk = cust_private_key
+            .to_public_key()
+            .to_secp256k1_public_key()
+            .serialize_compressed()
+            .to_vec();
 
         let mut cust_tx_input = transactions::btc::form_transaction_input::<Testnet>(
             &cust_input,
             &cust_address,
-            &cust_input_pk
+            &cust_input_pk,
         )
         .unwrap();
 
-        let merch_address = merch_private_key.to_address(&BitcoinFormat::P2SH_P2WPKH).unwrap();
-        let merch_input_pk = merch_private_key.to_public_key().to_secp256k1_public_key().serialize_compressed().to_vec();
+        let merch_address = merch_private_key
+            .to_address(&BitcoinFormat::P2SH_P2WPKH)
+            .unwrap();
+        let merch_input_pk = merch_private_key
+            .to_public_key()
+            .to_secp256k1_public_key()
+            .serialize_compressed()
+            .to_vec();
 
         let merch_tx_input = transactions::btc::form_transaction_input::<Testnet>(
             &merch_input,
             &merch_address,
-            &merch_input_pk
+            &merch_input_pk,
         )
         .unwrap();
 
