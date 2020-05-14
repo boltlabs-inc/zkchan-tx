@@ -369,10 +369,10 @@ pub mod btc {
         // add multi-sig output as P2WSH output
         let output1_script_pubkey =
             create_p2wsh_scriptpubkey::<N>(&output1.cust_pubkey, &output1.merch_pubkey);
-        println!(
-            "multi-sig script pubkey: {}",
-            hex::encode(&output1_script_pubkey)
-        );
+        // println!(
+        //     "multi-sig script pubkey: {}",
+        //     hex::encode(&output1_script_pubkey)
+        // );
         let multisig_output = BitcoinTransactionOutput {
             amount: BitcoinAmount(output1.amount),
             script_pub_key: output1_script_pubkey,
@@ -455,6 +455,93 @@ pub mod btc {
         .unwrap();
 
         Ok(transaction_input)
+    }
+
+    pub fn form_single_escrow_transaction<N: BitcoinNetwork>(
+        inputs: &Vec<BitcoinTransactionInput<N>>,
+        index: usize,
+        output1: &MultiSigOutput,
+        output2: &ChangeOutput,
+    ) -> Result<(Vec<u8>, BitcoinTransaction<N>), String> {
+        // check that specified public keys are valid
+        check_pk_valid!(output1.cust_pubkey);
+        check_pk_valid!(output1.merch_pubkey);
+        if !output2.is_hash {
+            check_pk_valid!(output2.pubkey);
+        }
+        let version = 2;
+        let lock_time = 0;
+
+        let mut output_vec = vec![];
+
+        // add multi-sig output as P2WSH output
+        let output1_script_pubkey =
+            create_p2wsh_scriptpubkey::<N>(&output1.cust_pubkey, &output1.merch_pubkey);
+        // println!(
+        //     "multi-sig script pubkey: {}",
+        //     hex::encode(&output1_script_pubkey)
+        // );
+        let multisig_output = BitcoinTransactionOutput {
+            amount: BitcoinAmount(output1.amount),
+            script_pub_key: output1_script_pubkey,
+        };
+        // let out1 = multisig_output.serialize().unwrap();
+        // println!("multisig_output script pubkey: {}", hex::encode(out1));
+
+        // add P2WPKH output
+        let output2_script_pubkey =
+            create_p2wpkh_scriptpubkey::<N>(&output2.pubkey, output2.is_hash);
+        let change_output = BitcoinTransactionOutput {
+            amount: BitcoinAmount(output2.amount),
+            script_pub_key: output2_script_pubkey,
+        };
+        //let out2 = change_output.serialize().unwrap();
+        //println!("output2 script pubkey: {}", hex::encode(out2));
+
+        output_vec.push(multisig_output);
+        output_vec.push(change_output);
+
+        let transaction_parameters = BitcoinTransactionParameters::<N> {
+            version: version,
+            inputs: inputs.clone(),
+            outputs: output_vec,
+            lock_time: lock_time,
+            segwit_flag: true,
+        };
+
+        let transaction = BitcoinTransaction::<N>::new(&transaction_parameters).unwrap();
+        let hash_preimage = transaction
+            .segwit_hash_preimage(index, SIGHASH_ALL)
+            .unwrap();
+        // return hash preimage of transaction and the transaction itself (for later signing)
+        Ok((hash_preimage, transaction))
+    }
+
+
+    pub fn compute_transaction_id_without_witness<N: BitcoinNetwork>(
+        unsigned_tx: BitcoinTransaction<N>,
+        private_key: BitcoinPrivateKey<N>
+    ) -> Result<([u8; 32], [u8; 32], [u8; 32]), String> {
+        // TODO: figure out why signing is required to get the correct transaction id
+        let signed_tx = unsigned_tx.sign(&private_key).unwrap();
+        // assume little endian here
+        let tx_id_hex = signed_tx.to_transaction_id().unwrap();
+        let txid = hex::decode(tx_id_hex.to_string()).unwrap();
+
+        let mut txid_buf = [0u8; 32];
+        let mut hash_prevout = [0u8; 32];
+        txid_buf.copy_from_slice(txid.as_slice());
+        let mut txid_buf_be = txid_buf.clone();
+        txid_buf_be.reverse();
+        let txid_buf_le = txid_buf.clone();
+    
+        let mut prevout_preimage: Vec<u8> = Vec::new();
+        prevout_preimage.extend(txid_buf_be.iter()); // txid (big endian)
+        prevout_preimage.extend(vec![0x00, 0x00, 0x00, 0x00]); // index
+        let result = Sha256::digest(&Sha256::digest(&prevout_preimage));
+        hash_prevout.copy_from_slice(&result);
+    
+        Ok((txid_buf_be, txid_buf_le, hash_prevout))
     }
 
     // creates a funding transaction with the following input/outputs

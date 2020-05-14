@@ -1,15 +1,15 @@
 use super::*;
 use bitcoin::transaction::BitcoinTransactionParameters;
 use bitcoin::{BitcoinAddress, BitcoinPublicKey, BitcoinPrivateKey, Testnet};
+use crate::wagyu_model::{PrivateKey, Transaction};
 use sha2::{Digest, Sha256};
 use transactions::btc::{
     completely_sign_multi_sig_transaction, create_escrow_transaction,
     generate_signature_for_multi_sig_transaction, merch_generate_transaction_id,
     sign_cust_close_claim_transaction, sign_escrow_transaction, sign_merch_dispute_transaction,
-    get_private_key, encode_public_key_for_transaction
+    get_private_key, encode_public_key_for_transaction, compute_transaction_id_without_witness
 };
 use transactions::{ChangeOutput, UtxoInput, MultiSigOutput, Output};
-use wagyu_model::Transaction;
 
 macro_rules! check_pk_length {
     ($x: expr) => {
@@ -40,18 +40,101 @@ macro_rules! handle_error {
     };
 }
 
-pub fn customer_sign_escrow_transaction(
-    txid: Vec<u8>,
+// form the escrow transaction given utxo/sk to obtain txid/prevout
+pub fn customer_form_escrow_transaction(
+    txid_le: Vec<u8>,
     index: u32,
+    cust_input_sk: Vec<u8>,
     input_sats: i64,
     output_sats: i64,
-    cust_sk: Vec<u8>,
     cust_pk: Vec<u8>,
     merch_pk: Vec<u8>,
     change_pk: Option<Vec<u8>>,
     change_pk_is_hash: bool,
-) -> Result<(Vec<u8>, [u8; 32], [u8; 32]), String> {
-    check_sk_length!(cust_sk);
+) -> Result<([u8; 32], [u8; 32], [u8; 32]), String> {
+    check_sk_length!(cust_input_sk);
+    check_pk_length!(cust_pk);
+    check_pk_length!(merch_pk);
+    let change_pubkey = match change_pk {
+        Some(pk) => match change_pk_is_hash {
+            true => pk,
+            false => {
+                check_pk_length!(pk);
+                pk
+            }
+        },
+        None => Vec::new(),
+    };
+
+    let input_index = index as usize;
+    let cust_input = UtxoInput {
+        address_format: String::from("p2sh_p2wpkh"),
+        transaction_id: txid_le,
+        index: index,
+        redeem_script: None,
+        script_pub_key: None,
+        utxo_amount: Some(input_sats), // assumes already in sats
+        sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+    };
+
+    let musig_output = MultiSigOutput {
+        cust_pubkey: cust_pk,
+        merch_pubkey: merch_pk,
+        address_format: "p2wsh",
+        amount: output_sats, // assumes already in sats
+    };
+
+    // test if we need a change output pubkey
+    let change_sats = input_sats - output_sats;
+    let change_output = match change_sats > 0 && change_pubkey.len() > 0 {
+        true => ChangeOutput {
+            pubkey: change_pubkey,
+            amount: change_sats,
+            is_hash: change_pk_is_hash,
+        },
+        false => {
+            return Err(String::from(
+                "Require a change pubkey to generate a valid escrow transaction",
+            ))
+        }
+    };
+    let csk = handle_error!(SecretKey::parse_slice(&cust_input_sk));
+    let private_key = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&csk, false);
+    let cust_input_pk = private_key.to_public_key().to_secp256k1_public_key().serialize_compressed().to_vec();
+
+    let cust_utxo = txutil::create_transaction_input(
+        &cust_input,
+        &cust_input_pk
+    )
+    .unwrap();
+
+    let (_escrow_tx_preimage, unsigned_escrow_tx) =
+        handle_error!(transactions::btc::form_single_escrow_transaction::<Testnet>(
+            &vec![cust_utxo],
+            input_index,
+            &musig_output,
+            &change_output
+        ));
+
+    let (txid_be, txid_le, hash_prevout) =
+        handle_error!(compute_transaction_id_without_witness::<Testnet>(unsigned_escrow_tx, private_key));
+
+    Ok((txid_be, txid_le, hash_prevout))
+}
+
+// sign the escrow transaction given utxo/sk and can broadcast
+pub fn customer_sign_escrow_transaction(
+    txid: Vec<u8>,
+    index: u32,
+    cust_input_sk: Vec<u8>,
+    input_sats: i64,
+    output_sats: i64,
+    cust_pk: Vec<u8>,
+    merch_pk: Vec<u8>,
+    change_pk: Option<Vec<u8>>,
+    change_pk_is_hash: bool,
+) -> Result<(Vec<u8>, [u8; 32], [u8; 32], [u8; 32]), String> {
+    check_sk_length!(cust_input_sk);
     check_pk_length!(cust_pk);
     check_pk_length!(merch_pk);
     let change_pubkey = match change_pk {
@@ -98,7 +181,7 @@ pub fn customer_sign_escrow_transaction(
         }
     };
 
-    let csk = handle_error!(SecretKey::parse_slice(&cust_sk));
+    let csk = handle_error!(SecretKey::parse_slice(&cust_input_sk));
     let private_key = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&csk, false);
     let (_escrow_tx_preimage, full_escrow_tx) =
         handle_error!(create_escrow_transaction::<Testnet>(
@@ -108,10 +191,11 @@ pub fn customer_sign_escrow_transaction(
             &change_output,
             private_key.clone()
         ));
-    let (signed_tx, txid, hash_prevout) =
+    let (signed_tx, txid_be, hash_prevout) =
         sign_escrow_transaction::<Testnet>(full_escrow_tx, private_key);
-
-    Ok((signed_tx, txid, hash_prevout))
+    let mut txid_le = txid_be.clone();
+    txid_le.reverse();
+    Ok((signed_tx, txid_be, txid_le, hash_prevout))
 }
 
 pub fn create_transaction_input(
@@ -657,6 +741,42 @@ mod tests {
     use bitcoin::{Testnet, BitcoinPrivateKey};
     use std::str::FromStr;
     use transactions::{UtxoInput, SATOSHI};
+
+    #[test]
+    fn form_single_escrow_transaction() {
+        // create customer utxo input
+        let txid = hex::decode("d21502c0d197e86b2847ff4c275ae989e06a52f09d60425701c2908217444326").unwrap();
+        let index = 0;  
+
+        // customer's keypair for utxo
+        let cust_private_key = BitcoinPrivateKey::<Testnet>::from_str(
+            "cPmiXrwUfViwwkvZ5NXySiHEudJdJ5aeXU4nx4vZuKWTUibpJdrn",
+        )
+        .unwrap();
+        let cust_input_sk = hex::decode("4157697b6428532758a9d0f9a73ce58befe3fd665797427d1c5bb3d33f6a132e").unwrap();
+        let cust_input_pk = cust_private_key.to_public_key().to_secp256k1_public_key().serialize_compressed().to_vec();
+        assert_eq!(cust_input_pk, hex::decode("027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb").unwrap());
+
+        let input_sats = 50 * SATOSHI;
+        let output_sats = 2 * SATOSHI;
+        let cust_pk = hex::decode("0250a33b5a379c2143c7deb27345a4f16d6f766fbf31c4a477e64050b5ec506f03").unwrap();
+        let merch_pk = hex::decode("021df2e472ce4f5f76100a45f04f75bf8742a796a07a6abfc8ed2b9939588b981a").unwrap();
+        let change_pk = hex::decode("034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa").unwrap();
+        let change_pk_is_hash = false;
+
+        let (txid_be, txid_le, prevout) = customer_form_escrow_transaction(txid.clone(), index, cust_input_sk.clone(), input_sats, output_sats, cust_pk.clone(), merch_pk.clone(), Some(change_pk.clone()), change_pk_is_hash).unwrap();
+
+        println!("forming the escrow tx: ");
+        println!("txid BE: {}", hex::encode(&txid_be));
+        println!("txid LE: {}", hex::encode(&txid_le));
+        println!("hash prevout: {}", hex::encode(&prevout));
+
+        let (signed_tx, txid2_be, txid2_le, prevout2) = customer_sign_escrow_transaction(txid, index, cust_input_sk, input_sats, output_sats, cust_pk, merch_pk, Some(change_pk), change_pk_is_hash).unwrap();
+        assert_eq!(txid_le, txid2_le);
+        assert_eq!(txid_be, txid2_be);
+        assert_eq!(prevout, prevout2);
+        println!("signed tx: {}", hex::encode(&signed_tx));
+    }   
 
     #[test]
     fn form_dual_escrow_transaction() {
