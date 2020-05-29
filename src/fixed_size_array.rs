@@ -5,6 +5,12 @@ use std::fmt;
 #[derive(Copy, Clone, Debug, Hash, PartialEq)]
 pub struct FixedSizeArray16(pub [u8; 16]);
 
+impl std::fmt::Display for FixedSizeArray16 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", hex::encode(&self.0))
+    }
+}
+
 impl ::serde::Serialize for FixedSizeArray16 {
     fn serialize<S: ::serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.collect_str(&hex::encode(&self.0))
@@ -48,6 +54,12 @@ impl<'de> Deserialize<'de> for FixedSizeArray16 {
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct FixedSizeArray32(pub [u8; 32]);
 
+impl std::fmt::Display for FixedSizeArray32 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", hex::encode(&self.0))
+    }
+}
+
 impl ::serde::Serialize for FixedSizeArray32 {
     fn serialize<S: ::serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.collect_str(&hex::encode(&self.0))
@@ -90,6 +102,12 @@ impl<'de> Deserialize<'de> for FixedSizeArray32 {
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct FixedSizeArray64(pub [u8; 32], pub [u8; 32]);
+
+impl std::fmt::Display for FixedSizeArray64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", hex::encode(&self.1), hex::encode(&self.1))
+    }
+}
 
 impl FixedSizeArray64 {
     pub fn new(buf: [u8; 64]) -> Self {
