@@ -2,12 +2,20 @@ use super::*;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 use std::fmt;
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq)]
+#[derive(Copy, Clone, Hash, PartialEq)]
 pub struct FixedSizeArray16(pub [u8; 16]);
 
 impl std::fmt::Display for FixedSizeArray16 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", hex::encode(&self.0))
+    }
+}
+
+impl std::fmt::Debug for FixedSizeArray16 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("FixedSizeArray16")
+        .field(&hex::encode(&self.0))
+        .finish()
     }
 }
 
@@ -51,12 +59,20 @@ impl<'de> Deserialize<'de> for FixedSizeArray16 {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
 pub struct FixedSizeArray32(pub [u8; 32]);
 
 impl std::fmt::Display for FixedSizeArray32 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", hex::encode(&self.0))
+    }
+}
+
+impl std::fmt::Debug for FixedSizeArray32 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("FixedSizeArray32")
+        .field(&hex::encode(&self.0))
+        .finish()
     }
 }
 
@@ -100,12 +116,21 @@ impl<'de> Deserialize<'de> for FixedSizeArray32 {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
 pub struct FixedSizeArray64(pub [u8; 32], pub [u8; 32]);
 
 impl std::fmt::Display for FixedSizeArray64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", hex::encode(&self.1), hex::encode(&self.1))
+    }
+}
+
+impl std::fmt::Debug for FixedSizeArray64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("FixedSizeArray64")
+        .field(&hex::encode(&self.0))
+        .field(&hex::encode(&self.1))
+        .finish()
     }
 }
 
