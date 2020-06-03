@@ -1079,9 +1079,10 @@ pub mod btc {
     }
 
     // transaction for customer to claim their output from cust-close-from-*-tx after timelock
-    pub fn sign_cust_close_claim_transaction<N: BitcoinNetwork>(
+    pub fn sign_cust_close_claim_transaction_helper<N: BitcoinNetwork>(
         txid_le: Vec<u8>,
         index: u32,
+        input_sats: i64,
         output: Output,
         self_delay_be: [u8; 2],
         rev_lock: Vec<u8>,
@@ -1110,7 +1111,7 @@ pub mod btc {
             transaction_id,
             index,
             Some(address),
-            Some(BitcoinAmount::from_satoshi(output.amount).unwrap()),
+            Some(BitcoinAmount::from_satoshi(input_sats).unwrap()),
             Some(redeem_script),
             None,
             Some(sequence),
@@ -1158,9 +1159,10 @@ pub mod btc {
     }
 
     // justice transaction for merchant to dispute the cust-close-from-tx via revoked rev-lock/rev-secret
-    pub fn sign_merch_dispute_transaction<N: BitcoinNetwork>(
+    pub fn sign_merch_dispute_transaction_helper<N: BitcoinNetwork>(
         txid_le: Vec<u8>,
         index: u32,
+        input_sats: i64,
         output: Output,
         self_delay_be: [u8; 2],
         rev_lock: Vec<u8>,
@@ -1188,7 +1190,7 @@ pub mod btc {
             transaction_id,
             index,
             Some(address),
-            Some(BitcoinAmount::from_satoshi(output.amount).unwrap()),
+            Some(BitcoinAmount::from_satoshi(input_sats).unwrap()),
             Some(redeem_script),
             None,
             Some(sequence),
@@ -1238,7 +1240,7 @@ pub mod btc {
     }
 
     // merchant claiming the `to_merchant` output in the cust-close-*-tx (spendable immediately)
-    pub fn sign_merch_claim_transaction<N: BitcoinNetwork>(
+    pub fn sign_merch_claim_transaction_helper<N: BitcoinNetwork>(
         input: UtxoInput,
         output: Output,
         private_key: BitcoinPrivateKey<N>,
@@ -2019,7 +2021,8 @@ mod tests {
             hex::decode("f4df16149735c2963832ccaa9627f4008a06291e8b932c2fc76b3a5d62d462e1")
                 .unwrap();
         let index = 0;
-        let utxo_amount = 1 * SATOSHI;
+        let input_sats = 1 * SATOSHI;
+        let output_sats = 1 * SATOSHI;
         let rev_secret =
             hex::decode("3111111111111111111111111111111111111111111111111111111111111111")
                 .unwrap();
@@ -2032,7 +2035,7 @@ mod tests {
                 .unwrap();
         let to_self_delay_be: [u8; 2] = [0x05, 0xcf]; // big-endian format
         let output = Output {
-            amount: utxo_amount,
+            amount: output_sats,
             pubkey: hex::decode(
                 "027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb",
             )
@@ -2044,9 +2047,10 @@ mod tests {
         )
         .unwrap();
 
-        let (signed_tx, tx_preimage) = transactions::btc::sign_merch_dispute_transaction(
+        let (signed_tx, tx_preimage) = transactions::btc::sign_merch_dispute_transaction_helper(
             txid_le,
             index,
+            input_sats,
             output,
             to_self_delay_be,
             rev_lock,
@@ -2070,7 +2074,8 @@ mod tests {
             hex::decode("f4df16149735c2963832ccaa9627f4008a06291e8b932c2fc76b3a5d62d462e1")
                 .unwrap();
         let index = 0;
-        let utxo_amount = 1 * SATOSHI;
+        let input_sats = 1 * SATOSHI;
+        let output_sats = 1 * SATOSHI;
         let rev_lock =
             hex::decode("3111111111111111111111111111111111111111111111111111111111111111")
                 .unwrap();
@@ -2083,7 +2088,7 @@ mod tests {
         let to_self_delay_be: [u8; 2] = [0x05, 0xcf]; // big-endian format
 
         let output = Output {
-            amount: utxo_amount,
+            amount: output_sats,
             pubkey: hex::decode(
                 "027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb",
             )
@@ -2094,17 +2099,19 @@ mod tests {
             "cPmiXrwUfViwwkvZ5NXySiHEudJdJ5aeXU4nx4vZuKWTUibpJdrn",
         )
         .unwrap();
-        let (_signed_tx, tx_preimage) = transactions::btc::sign_cust_close_claim_transaction(
-            txid_le,
-            index,
-            output,
-            to_self_delay_be,
-            rev_lock,
-            merch_disp_pk,
-            cust_close_pk,
-            c_private_key,
-        )
-        .unwrap();
+        let (_signed_tx, tx_preimage) =
+            transactions::btc::sign_cust_close_claim_transaction_helper(
+                txid_le,
+                index,
+                input_sats,
+                output,
+                to_self_delay_be,
+                rev_lock,
+                merch_disp_pk,
+                cust_close_pk,
+                c_private_key,
+            )
+            .unwrap();
         println!(
             "preimage for cust_claim tx (from cust-close-tx): {}",
             hex::encode(&tx_preimage)
@@ -2116,7 +2123,8 @@ mod tests {
     #[test]
     fn sign_merch_claim_transactions() {
         // case 1 - testing merchant claiming the `to_merchant` output in the cust-close-*-tx (spendable immediately)
-        let utxo_amount = 1 * SATOSHI;
+        let input_sats = 1 * SATOSHI;
+        let output_sats = 1 * SATOSHI;
         let input1 = UtxoInput {
             address_format: String::from("p2wpkh"),
             // outpoint + txid
@@ -2127,12 +2135,12 @@ mod tests {
             index: 1,
             redeem_script: None,
             script_pub_key: None,
-            utxo_amount: Some(utxo_amount),
+            utxo_amount: Some(input_sats),
             sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
         };
 
         let output = Output {
-            amount: utxo_amount,
+            amount: output_sats,
             pubkey: hex::decode(
                 "027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb",
             )
@@ -2143,7 +2151,7 @@ mod tests {
             "cNTSD7W8URSCmfPTvNf2B5gyKe2wwyNomkCikVhuHPCsFgBUKrAV",
         )
         .unwrap();
-        let (signed_tx1, _tx_preimage1) = transactions::btc::sign_merch_claim_transaction(
+        let (signed_tx1, _tx_preimage1) = transactions::btc::sign_merch_claim_transaction_helper(
             input1,
             output.clone(),
             m_private_key.clone(),
@@ -2180,12 +2188,13 @@ mod tests {
             index: 0,
             redeem_script: Some(redeem_script),
             script_pub_key: None,
-            utxo_amount: Some(utxo_amount),
+            utxo_amount: Some(output_sats),
             sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
         };
 
         let (signed_tx2, _tx_preimage2) =
-            transactions::btc::sign_merch_claim_transaction(input2, output, m_private_key).unwrap();
+            transactions::btc::sign_merch_claim_transaction_helper(input2, output, m_private_key)
+                .unwrap();
         println!("Spend from P2WSH: {}", hex::encode(signed_tx2));
     }
 }

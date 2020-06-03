@@ -14,8 +14,8 @@ impl std::fmt::Display for FixedSizeArray16 {
 impl std::fmt::Debug for FixedSizeArray16 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("FixedSizeArray16")
-        .field(&hex::encode(&self.0))
-        .finish()
+            .field(&hex::encode(&self.0))
+            .finish()
     }
 }
 
@@ -71,8 +71,8 @@ impl std::fmt::Display for FixedSizeArray32 {
 impl std::fmt::Debug for FixedSizeArray32 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("FixedSizeArray32")
-        .field(&hex::encode(&self.0))
-        .finish()
+            .field(&hex::encode(&self.0))
+            .finish()
     }
 }
 
@@ -128,9 +128,9 @@ impl std::fmt::Display for FixedSizeArray64 {
 impl std::fmt::Debug for FixedSizeArray64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("FixedSizeArray64")
-        .field(&hex::encode(&self.0))
-        .field(&hex::encode(&self.1))
-        .finish()
+            .field(&hex::encode(&self.0))
+            .field(&hex::encode(&self.1))
+            .finish()
     }
 }
 

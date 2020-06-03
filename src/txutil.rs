@@ -7,7 +7,8 @@ use transactions::btc::{
     completely_sign_multi_sig_transaction, compute_transaction_id_without_witness,
     create_escrow_transaction, encode_public_key_for_transaction,
     generate_signature_for_multi_sig_transaction, get_private_key, merch_generate_transaction_id,
-    sign_cust_close_claim_transaction, sign_escrow_transaction, sign_merch_dispute_transaction,
+    sign_cust_close_claim_transaction_helper, sign_escrow_transaction,
+    sign_merch_claim_transaction_helper, sign_merch_dispute_transaction_helper,
 };
 use transactions::{ChangeOutput, MultiSigOutput, Output, UtxoInput};
 
@@ -588,6 +589,7 @@ pub fn merchant_sign_merch_dispute_transaction(
     txid_le: Vec<u8>,
     index: u32,
     input_sats: i64,
+    output_sats: i64,
     self_delay_be: [u8; 2],
     output_pk: Vec<u8>,
     rev_lock: Vec<u8>,
@@ -602,14 +604,19 @@ pub fn merchant_sign_merch_dispute_transaction(
 
     let msk = handle_error!(SecretKey::parse_slice(&merch_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&msk, false);
+    if output_sats > input_sats {
+        return Err(format!("output_sats should be less than input_sats"));
+    }
+    // create txOut
     let output = Output {
-        amount: input_sats,
+        amount: output_sats,
         pubkey: output_pk,
     };
-
-    let signed_tx = match sign_merch_dispute_transaction::<Testnet>(
+    // create the rest of the transaction
+    let signed_tx = match sign_merch_dispute_transaction_helper::<Testnet>(
         txid_le,
         index,
+        input_sats,
         output,
         self_delay_be,
         rev_lock,
@@ -628,6 +635,7 @@ pub fn customer_sign_cust_close_claim_transaction(
     txid_le: Vec<u8>,
     index: u32,
     input_sats: i64,
+    output_sats: i64,
     self_delay_be: [u8; 2],
     output_pk: Vec<u8>,
     rev_lock: Vec<u8>,
@@ -640,14 +648,20 @@ pub fn customer_sign_cust_close_claim_transaction(
     check_pk_length!(merch_disp_pk);
     let csk = handle_error!(SecretKey::parse_slice(&cust_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&csk, false);
+    if output_sats > input_sats {
+        return Err(format!("output_sats should be less than input_sats"));
+    }
+    // create txOut
     let output = Output {
-        amount: input_sats,
+        amount: output_sats,
         pubkey: output_pk,
     };
 
-    let signed_tx = match sign_cust_close_claim_transaction::<Testnet>(
+    // create rest of the transaction
+    let signed_tx = match sign_cust_close_claim_transaction_helper::<Testnet>(
         txid_le,
         index,
+        input_sats,
         output,
         self_delay_be,
         rev_lock,
@@ -665,6 +679,7 @@ pub fn merchant_sign_cust_close_claim_transaction(
     txid_le: Vec<u8>,
     index: u32,
     input_sats: i64,
+    output_sats: i64,
     output_pk: Vec<u8>,
     merch_sk: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
@@ -672,6 +687,10 @@ pub fn merchant_sign_cust_close_claim_transaction(
     check_pk_length!(output_pk);
     let msk = handle_error!(SecretKey::parse_slice(&merch_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&msk, false);
+    if output_sats > input_sats {
+        return Err(format!("output_sats should be less than input_sats"));
+    }
+
     let input = UtxoInput {
         address_format: String::from("p2wpkh"),
         transaction_id: txid_le,
@@ -683,11 +702,11 @@ pub fn merchant_sign_cust_close_claim_transaction(
     };
 
     let output = Output {
-        amount: input_sats,
+        amount: output_sats,
         pubkey: output_pk,
     };
 
-    let signed_tx = match transactions::btc::sign_merch_claim_transaction(input, output, sk) {
+    let signed_tx = match sign_merch_claim_transaction_helper(input, output, sk) {
         Ok(s) => s.0,
         Err(e) => return Err(e.to_string()),
     };
@@ -698,6 +717,7 @@ pub fn merchant_sign_merch_close_claim_transaction(
     txid_le: Vec<u8>,
     index: u32,
     input_sats: i64,
+    output_sats: i64,
     output_pk: Vec<u8>,
     to_self_delay_be: [u8; 2],
     cust_pk: Vec<u8>,
@@ -710,6 +730,7 @@ pub fn merchant_sign_merch_close_claim_transaction(
     check_sk_length!(merch_close_sk);
     let merch_csk = handle_error!(SecretKey::parse_slice(&merch_close_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&merch_csk, false);
+
     let mut to_self_delay_le = to_self_delay_be.to_vec();
     to_self_delay_le.reverse();
 
@@ -734,11 +755,11 @@ pub fn merchant_sign_merch_close_claim_transaction(
     };
 
     let output = Output {
-        amount: input_sats,
+        amount: output_sats,
         pubkey: output_pk,
     };
 
-    let signed_tx = match transactions::btc::sign_merch_claim_transaction(input, output, sk) {
+    let signed_tx = match sign_merch_claim_transaction_helper(input, output, sk) {
         Ok(s) => s.0,
         Err(e) => return Err(e.to_string()),
     };
