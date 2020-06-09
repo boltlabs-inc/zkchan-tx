@@ -517,15 +517,15 @@ pub fn merchant_sign_dual_escrow_transaction(
 }
 
 pub fn customer_sign_merch_close_transaction(
-    cust_sk: Vec<u8>,
-    merch_tx_preimage: Vec<u8>,
+    cust_sk: &Vec<u8>,
+    merch_tx_preimage: &Vec<u8>,
 ) -> Result<Vec<u8>, String> {
     check_sk_length!(cust_sk);
     // customer signs the preimage and sends signature to merchant
-    let csk = handle_error!(SecretKey::parse_slice(&cust_sk));
+    let csk = handle_error!(SecretKey::parse_slice(cust_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&csk, false);
     let cust_sig =
-        generate_signature_for_multi_sig_transaction::<Testnet>(&merch_tx_preimage, &sk)?;
+        generate_signature_for_multi_sig_transaction::<Testnet>(merch_tx_preimage, &sk)?;
     Ok(cust_sig)
 }
 
