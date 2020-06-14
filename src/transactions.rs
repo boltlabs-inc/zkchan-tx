@@ -1174,7 +1174,7 @@ pub mod btc {
         let version = 2;
         let lock_time = 0;
         let mut self_delay_le = self_delay_be.to_vec();
-        self_delay_le.reverse();
+        self_delay_le.reverse(); // now it's in big endian format
 
         let redeem_script = serialize_p2wsh_cust_close_redeem_script(
             &rev_lock,

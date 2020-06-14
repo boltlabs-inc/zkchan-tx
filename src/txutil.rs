@@ -43,14 +43,14 @@ macro_rules! handle_error {
 
 // form the escrow transaction given utxo/sk to obtain txid/prevout
 pub fn customer_form_escrow_transaction(
-    txid_le: Vec<u8>,
+    txid_le: &Vec<u8>,
     index: u32,
-    cust_input_sk: Vec<u8>,
+    cust_input_sk: &Vec<u8>,
     input_sats: i64,
     output_sats: i64,
-    cust_pk: Vec<u8>,
-    merch_pk: Vec<u8>,
-    change_pk: Option<Vec<u8>>,
+    cust_pk: &Vec<u8>,
+    merch_pk: &Vec<u8>,
+    change_pk: Option<&Vec<u8>>,
     change_pk_is_hash: bool,
 ) -> Result<([u8; 32], [u8; 32], [u8; 32]), String> {
     check_sk_length!(cust_input_sk);
@@ -58,10 +58,10 @@ pub fn customer_form_escrow_transaction(
     check_pk_length!(merch_pk);
     let change_pubkey = match change_pk {
         Some(pk) => match change_pk_is_hash {
-            true => pk,
+            true => pk.clone(),
             false => {
                 check_pk_length!(pk);
-                pk
+                pk.clone()
             }
         },
         None => Vec::new(),
@@ -70,7 +70,7 @@ pub fn customer_form_escrow_transaction(
     let input_index = index as usize;
     let cust_input = UtxoInput {
         address_format: String::from("p2sh_p2wpkh"),
-        transaction_id: txid_le,
+        transaction_id: txid_le.clone(),
         index: index,
         redeem_script: None,
         script_pub_key: None,
@@ -79,8 +79,8 @@ pub fn customer_form_escrow_transaction(
     };
 
     let musig_output = MultiSigOutput {
-        cust_pubkey: cust_pk,
-        merch_pubkey: merch_pk,
+        cust_pubkey: cust_pk.clone(),
+        merch_pubkey: merch_pk.clone(),
         address_format: "p2wsh",
         amount: output_sats, // assumes already in sats
     };
@@ -127,34 +127,39 @@ pub fn customer_form_escrow_transaction(
 
 // sign the escrow transaction given utxo/sk and can broadcast
 pub fn customer_sign_escrow_transaction(
-    txid: Vec<u8>,
+    txid: &Vec<u8>,
     index: u32,
-    cust_input_sk: Vec<u8>,
+    cust_input_sk: &Vec<u8>,
     input_sats: i64,
     output_sats: i64,
-    cust_pk: Vec<u8>,
-    merch_pk: Vec<u8>,
-    change_pk: Option<Vec<u8>>,
+    cust_pk: &Vec<u8>,
+    merch_pk: &Vec<u8>,
+    change_pk: Option<&Vec<u8>>,
     change_pk_is_hash: bool,
+    tx_fee: i64
 ) -> Result<(Vec<u8>, [u8; 32], [u8; 32], [u8; 32]), String> {
     check_sk_length!(cust_input_sk);
     check_pk_length!(cust_pk);
     check_pk_length!(merch_pk);
     let change_pubkey = match change_pk {
         Some(pk) => match change_pk_is_hash {
-            true => pk,
+            true => pk.clone(),
             false => {
                 check_pk_length!(pk);
-                pk
+                pk.clone()
             }
         },
         None => Vec::new(),
     };
 
+    if output_sats > (input_sats + tx_fee) {
+        return Err(format!("output_sats should be less than input_sats"));
+    }
+
     let input_index = 0;
     let input = UtxoInput {
         address_format: String::from("p2sh_p2wpkh"),
-        transaction_id: txid,
+        transaction_id: txid.clone(),
         index: index,
         redeem_script: None,
         script_pub_key: None,
@@ -163,14 +168,17 @@ pub fn customer_sign_escrow_transaction(
     };
 
     let musig_output = MultiSigOutput {
-        cust_pubkey: cust_pk,
-        merch_pubkey: merch_pk,
+        cust_pubkey: cust_pk.clone(),
+        merch_pubkey: merch_pk.clone(),
         address_format: "p2wsh",
         amount: output_sats, // assumes already in sats
     };
 
     // test if we need a change output pubkey
-    let change_sats = input_sats - output_sats;
+    let change_sats = match tx_fee > 0 {
+        true => input_sats - output_sats,
+        false => input_sats - output_sats - tx_fee
+    };
     let change_output = match change_sats > 0 && change_pubkey.len() > 0 {
         true => ChangeOutput {
             pubkey: change_pubkey,
@@ -800,8 +808,10 @@ mod tests {
                 .unwrap()
         );
 
-        let input_sats = 50 * SATOSHI;
+        let good_input_sats = 3 * SATOSHI;
+        let bad_input_sats = 2 * SATOSHI;
         let output_sats = 2 * SATOSHI;
+        let tx_fee = 1000;
         let cust_pk =
             hex::decode("0250a33b5a379c2143c7deb27345a4f16d6f766fbf31c4a477e64050b5ec506f03")
                 .unwrap();
@@ -814,14 +824,14 @@ mod tests {
         let change_pk_is_hash = false;
 
         let (txid_be, txid_le, prevout) = customer_form_escrow_transaction(
-            txid.clone(),
+            &txid,
             index,
-            cust_input_sk.clone(),
-            input_sats,
+            &cust_input_sk,
+            good_input_sats,
             output_sats,
-            cust_pk.clone(),
-            merch_pk.clone(),
-            Some(change_pk.clone()),
+            &cust_pk,
+            &merch_pk,
+            Some(&change_pk),
             change_pk_is_hash,
         )
         .unwrap();
@@ -832,21 +842,36 @@ mod tests {
         println!("hash prevout: {}", hex::encode(&prevout));
 
         let (signed_tx, txid2_be, txid2_le, prevout2) = customer_sign_escrow_transaction(
-            txid,
+            &txid,
             index,
-            cust_input_sk,
-            input_sats,
+            &cust_input_sk,
+            good_input_sats,
             output_sats,
-            cust_pk,
-            merch_pk,
-            Some(change_pk),
+            &cust_pk,
+            &merch_pk,
+            Some(&change_pk),
             change_pk_is_hash,
+            tx_fee
         )
         .unwrap();
         assert_eq!(txid_le, txid2_le);
         assert_eq!(txid_be, txid2_be);
         assert_eq!(prevout, prevout2);
         println!("signed tx: {}", hex::encode(&signed_tx));
+
+        let res = customer_sign_escrow_transaction(
+            &txid,
+            index,
+            &cust_input_sk,
+            bad_input_sats,
+            output_sats,
+            &cust_pk,
+            &merch_pk,
+            Some(&change_pk),
+            change_pk_is_hash,
+            tx_fee
+        );
+        assert!(res.is_err());
     }
 
     #[test]
