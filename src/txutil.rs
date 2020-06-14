@@ -92,8 +92,8 @@ pub fn customer_form_escrow_transaction(
 
     // test if we need a change output pubkey
     let change_sats = match tx_fee > 0 {
-        true => input_sats - output_sats,
-        false => input_sats - output_sats - tx_fee
+        true => input_sats - output_sats - tx_fee,
+        false => input_sats - output_sats
     };
     let change_output = match change_sats > 0 && change_pubkey.len() > 0 {
         true => ChangeOutput {
@@ -184,8 +184,8 @@ pub fn customer_sign_escrow_transaction(
 
     // test if we need a change output pubkey
     let change_sats = match tx_fee > 0 {
-        true => input_sats - output_sats,
-        false => input_sats - output_sats - tx_fee
+        true => input_sats - output_sats - tx_fee,
+        false => input_sats - output_sats
     };
     let change_output = match change_sats > 0 && change_pubkey.len() > 0 {
         true => ChangeOutput {
