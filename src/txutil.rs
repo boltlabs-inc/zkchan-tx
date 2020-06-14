@@ -52,6 +52,7 @@ pub fn customer_form_escrow_transaction(
     merch_pk: &Vec<u8>,
     change_pk: Option<&Vec<u8>>,
     change_pk_is_hash: bool,
+    tx_fee: i64
 ) -> Result<([u8; 32], [u8; 32], [u8; 32]), String> {
     check_sk_length!(cust_input_sk);
     check_pk_length!(cust_pk);
@@ -66,6 +67,10 @@ pub fn customer_form_escrow_transaction(
         },
         None => Vec::new(),
     };
+
+    if output_sats > (input_sats + tx_fee) {
+        return Err(format!("output_sats should be less than input_sats"));
+    }
 
     let input_index = index as usize;
     let cust_input = UtxoInput {
@@ -86,7 +91,10 @@ pub fn customer_form_escrow_transaction(
     };
 
     // test if we need a change output pubkey
-    let change_sats = input_sats - output_sats;
+    let change_sats = match tx_fee > 0 {
+        true => input_sats - output_sats,
+        false => input_sats - output_sats - tx_fee
+    };
     let change_output = match change_sats > 0 && change_pubkey.len() > 0 {
         true => ChangeOutput {
             pubkey: change_pubkey,
@@ -833,6 +841,7 @@ mod tests {
             &merch_pk,
             Some(&change_pk),
             change_pk_is_hash,
+            tx_fee
         )
         .unwrap();
 
