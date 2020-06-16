@@ -74,6 +74,17 @@ pub mod btc {
         return script;
     }
 
+    fn encode_self_delay(self_delay_le: &Vec<u8>) -> Vec<u8> {
+        let self_delay: [u8; 2] = [self_delay_le[0] as u8, self_delay_le[1] as u8];
+        let num = u16::from_le_bytes(self_delay);
+        if num <= 127 {
+            return vec![0x01, num as u8];
+        }
+        let mut self_delay_buf = vec![0x02];
+        self_delay_buf.extend(self_delay_le.iter());
+        return self_delay_buf;
+    }
+
     pub fn serialize_p2wsh_merch_close_redeem_script(
         cust_pubkey: &Vec<u8>,
         merch_pubkey: &Vec<u8>,
@@ -98,14 +109,15 @@ pub mod btc {
         //# merch_close_pk
         //# 0xac      OP_CHECKSIG
         //# 0x68      OP_ENDIF
+        let self_delay_bytes = encode_self_delay(self_delay_le);
+
         let mut script: Vec<u8> = Vec::new();
         script.extend(vec![0x63, 0x52, 0x21]); // OP_IF + OP_2 + OP_DATA (pk1 len)
         script.extend(merch_pubkey.iter());
         script.push(0x21); // OP_DATA (pk2 len)
         script.extend(cust_pubkey.iter());
         script.extend(vec![0x52, 0xae, 0x67]); // OP_2 OP_CHECKMULTISIG
-        script.push(0x02); // len for sequence
-        script.extend(self_delay_le.iter()); // short sequence
+        script.extend(self_delay_bytes.iter()); // short sequence
         script.extend(vec![0xb2, 0x75, 0x21]);
         script.extend(merch_close_pubkey.iter());
         script.extend(vec![0xac, 0x68]);
@@ -212,14 +224,15 @@ pub mod btc {
         //# cust_close_pk
         //# 0x68      OP_ENDIF
         //# 0xac      OP_CHECKSIG
+        let self_delay_bytes = encode_self_delay(self_delay_le);
+
         let mut script: Vec<u8> = Vec::new();
         script.extend(vec![0x63, 0xa8, 0x20]);
         script.extend(rev_lock.iter());
         script.extend(vec![0x88, 0x21]);
         script.extend(merch_disp_pubkey.iter());
         script.push(0x67);
-        script.push(0x02); // len for sequence
-        script.extend(self_delay_le.iter()); // short sequence
+        script.extend(self_delay_bytes.iter()); // short sequence
         script.extend(vec![0xb2, 0x75, 0x21]);
         script.extend(cust_close_pubkey.iter());
         script.extend(vec![0x68, 0xac]);
