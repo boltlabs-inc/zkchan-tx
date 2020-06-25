@@ -74,12 +74,18 @@ pub mod btc {
         return script;
     }
 
-    fn encode_self_delay(self_delay_le: &Vec<u8>) -> Vec<u8> {
+    pub fn encode_self_delay(self_delay_le: &Vec<u8>) -> Vec<u8> {
         let self_delay: [u8; 2] = [self_delay_le[0] as u8, self_delay_le[1] as u8];
         let num = u16::from_le_bytes(self_delay);
-        if num <= 127 {
+
+        if num <= 16 {
+            // encode OP_1 to OP_16 without a length byte
+            return vec![0x50 + num as u8];
+        } else if num < 128 {
+            // encode 0x01 for lenth and self delay bytes
             return vec![0x01, num as u8];
         }
+        // encode 0x02 for length and self delay bytes
         let mut self_delay_buf = vec![0x02];
         self_delay_buf.extend(self_delay_le.iter());
         return self_delay_buf;
@@ -1492,6 +1498,21 @@ mod tests {
     use bitcoin::Testnet;
     use std::str::FromStr;
     use transactions::{MultiSigOutput, Output, UtxoInput};
+
+    #[test]
+    fn test_variable_self_delay() {
+        let self_delay_le = vec![0x01, 0x01]; // 257 and above
+        let self_delay_bytes = transactions::btc::encode_self_delay(&self_delay_le);
+        assert_eq!(self_delay_bytes, vec![0x02, 0x01, 0x01]);
+
+        let self_delay_le2 = vec![0x7f, 0x00]; // 127
+        let self_delay_bytes2 = transactions::btc::encode_self_delay(&self_delay_le2);
+        assert_eq!(self_delay_bytes2, vec![0x01, 0x7f]);
+
+        let self_delay_le3 = vec![0x10, 0x00]; // 16
+        let self_delay_bytes3 = transactions::btc::encode_self_delay(&self_delay_le3);
+        assert_eq!(self_delay_bytes3, vec![0x60]);
+    }
 
     #[test]
     fn bitcoin_p2wsh_address() {
