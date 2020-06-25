@@ -754,7 +754,7 @@ pub fn merchant_sign_merch_close_claim_transaction(
         &merch_pk,
         &merch_close_pk,
         &to_self_delay_le,
-    );
+    )?;
     to_self_delay_le.extend_from_slice(&[0u8; 2]);
     let mut sequence = [0u8; 4];
     sequence.copy_from_slice(to_self_delay_le.as_slice());
