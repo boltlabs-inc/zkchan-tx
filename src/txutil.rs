@@ -809,6 +809,10 @@ pub fn customer_sign_mutual_close_transaction(
         merch_bal,
     )
     .unwrap();
+    println!(
+        "(customer view) mutual tx preimage: {}",
+        hex::encode(&mutual_tx_preimage)
+    );
 
     // get the signature on the preimage
     let cust_signature =
@@ -851,6 +855,10 @@ pub fn merchant_sign_mutual_close_transaction(
             merch_bal,
         )
         .unwrap();
+    println!(
+        "(merchant view) mutual tx preimage: {}",
+        hex::encode(&mutual_tx_preimage)
+    );
 
     // check the cust_signature against the mutual_tx_preimage
     let witness_pk = PublicKey::parse_slice(&cust_pk, None).unwrap();
