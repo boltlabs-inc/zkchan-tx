@@ -81,7 +81,7 @@ pub mod btc {
             return Err(format!("self delay should be between [1, 32767]"));
         }
 
-        if num >= 1 && num <= 16 {
+        if num <= 16 {
             // encode OP_1 to OP_16 without a length byte
             return Ok(vec![0x50 + num as u8]);
         } else if num < 128 {
@@ -1090,6 +1090,97 @@ pub mod btc {
         output_vec.push(to_merchant);
         output_vec.push(op_return_out);
         output_vec.push(cpfp);
+
+        let transaction_parameters = BitcoinTransactionParameters::<N> {
+            version: version,
+            inputs: input_vec,
+            outputs: output_vec,
+            lock_time: lock_time,
+            segwit_flag: true,
+        };
+
+        let transaction = BitcoinTransaction::<N>::new(&transaction_parameters).unwrap();
+        let hash_preimage = transaction.segwit_hash_preimage(0, SIGHASH_ALL).unwrap();
+
+        return Ok((hash_preimage, transaction_parameters, transaction));
+    }
+
+    pub fn create_mutual_close_transaction<N: BitcoinNetwork>(
+        input: &UtxoInput,
+        cust_pk: &Vec<u8>,
+        merch_pk: &Vec<u8>,
+        cust_close_pk: &Vec<u8>,
+        merch_close_pk: &Vec<u8>,
+        final_cust_bal: i64,
+        final_merch_bal: i64,
+    ) -> Result<
+        (
+            Vec<u8>,
+            BitcoinTransactionParameters<N>,
+            BitcoinTransaction<N>,
+        ),
+        String,
+    > {
+        let version = 2;
+        let lock_time = 0;
+        let address_format = match input.address_format.as_str() {
+            "p2wsh" => BitcoinFormat::P2WSH,
+            _ => {
+                return Err(format!(
+                    "do not currently support specified address format: {}",
+                    input.address_format
+                ))
+            }
+        };
+        let escrow_amount = input.utxo_amount.unwrap();
+        if escrow_amount < (final_cust_bal + final_merch_bal) {
+            return Err(format!(
+                "Escrow input amount is less than sum of output amounts"
+            ));
+        }
+
+        let redeem_script = serialize_p2wsh_escrow_redeem_script(&cust_pk, &merch_pk);
+        let address = match address_format {
+            BitcoinFormat::P2WSH => BitcoinAddress::<N>::p2wsh(&redeem_script).unwrap(),
+            _ => return Err(format!("do not currently support specified address format")),
+        };
+        // println!("address: {}", address);
+        let sequence = input.sequence.map(|seq| seq.to_vec());
+
+        let escrow_tx_input = BitcoinTransactionInput::<N>::new(
+            input.transaction_id.clone(),
+            input.index,
+            Some(address),
+            Some(BitcoinAmount::from_satoshi(escrow_amount).unwrap()),
+            Some(redeem_script),
+            None,
+            sequence,
+            SIGHASH_ALL,
+        )
+        .unwrap();
+
+        let mut input_vec = vec![];
+        input_vec.push(escrow_tx_input);
+
+        // output 1: P2WPKH output to customer
+        let output1_script_pubkey = create_p2wpkh_scriptpubkey::<N>(&cust_close_pk, false);
+        // println!("(1) to_customer: {}", hex::encode(&output1_script_pubkey));
+        let to_customer = BitcoinTransactionOutput {
+            amount: BitcoinAmount::from_satoshi(final_cust_bal).unwrap(),
+            script_pub_key: output1_script_pubkey,
+        };
+
+        // output 2: P2WPKH output to merchant
+        let output2_script_pubkey = create_p2wpkh_scriptpubkey::<N>(&merch_close_pk, false);
+        // println!("(2) to_merchant: {}", hex::encode(&output2_script_pubkey));
+        let to_merchant = BitcoinTransactionOutput {
+            amount: BitcoinAmount::from_satoshi(final_merch_bal).unwrap(),
+            script_pub_key: output2_script_pubkey,
+        };
+
+        let mut output_vec = vec![];
+        output_vec.push(to_customer);
+        output_vec.push(to_merchant);
 
         let transaction_parameters = BitcoinTransactionParameters::<N> {
             version: version,

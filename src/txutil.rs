@@ -781,6 +781,105 @@ pub fn merchant_sign_merch_close_claim_transaction(
     Ok(signed_tx)
 }
 
+pub fn customer_sign_mutual_close_transaction(
+    escrow_input: &UtxoInput,
+    cust_pk: &Vec<u8>,
+    merch_pk: &Vec<u8>,
+    cust_close_pk: &Vec<u8>,
+    merch_close_pk: &Vec<u8>,
+    cust_bal: i64,
+    merch_bal: i64,
+    cust_sk: &Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    check_pk_length!(cust_pk);
+    check_pk_length!(cust_close_pk);
+    check_pk_length!(merch_pk);
+    check_pk_length!(merch_close_pk);
+    check_sk_length!(cust_sk);
+    let csk = handle_error!(SecretKey::parse_slice(&cust_sk));
+    let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&csk, false);
+
+    let (mutual_tx_preimage, _, _) = transactions::btc::create_mutual_close_transaction::<Testnet>(
+        &escrow_input,
+        &cust_pk,
+        &merch_pk,
+        &cust_close_pk,
+        &merch_close_pk,
+        cust_bal,
+        merch_bal,
+    )
+    .unwrap();
+
+    // get the signature on the preimage
+    let cust_signature =
+        transactions::btc::generate_signature_for_multi_sig_transaction::<Testnet>(
+            &mutual_tx_preimage,
+            &sk,
+        )
+        .unwrap();
+
+    return Ok(cust_signature);
+}
+
+pub fn merchant_sign_mutual_close_transaction(
+    escrow_input: &UtxoInput,
+    cust_pk: &Vec<u8>,
+    merch_pk: &Vec<u8>,
+    cust_close_pk: &Vec<u8>,
+    merch_close_pk: &Vec<u8>,
+    cust_bal: i64,
+    merch_bal: i64,
+    cust_signature: &Vec<u8>,
+    merch_sk: &Vec<u8>,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
+    check_pk_length!(cust_pk);
+    check_pk_length!(cust_close_pk);
+    check_pk_length!(merch_pk);
+    check_pk_length!(merch_close_pk);
+    check_sk_length!(merch_sk);
+    let msk = handle_error!(SecretKey::parse_slice(&merch_sk));
+    let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&msk, false);
+
+    let (mutual_tx_preimage, mutual_tx_params, _) =
+        transactions::btc::create_mutual_close_transaction::<Testnet>(
+            &escrow_input,
+            &cust_pk,
+            &merch_pk,
+            &cust_close_pk,
+            &merch_close_pk,
+            cust_bal,
+            merch_bal,
+        )
+        .unwrap();
+
+    // check the cust_signature against the mutual_tx_preimage
+    let witness_pk = PublicKey::parse_slice(&cust_pk, None).unwrap();
+    let escrow_tx_hash = Sha256::digest(&Sha256::digest(&mutual_tx_preimage));
+    let msg = secp256k1::Message::parse_slice(&escrow_tx_hash).unwrap();
+    let mut cust_sig = cust_signature.clone();
+    cust_sig.pop();
+    let sig = secp256k1::Signature::parse_der(&cust_sig[1..]).unwrap();
+    // verify that the cust-signature is valid w.r.t preimage
+    if !verify(&msg, &sig, &witness_pk) {
+        return Err(format!(
+            "Could not validate signature on <mutual-tx-preimage> for mutual close tx"
+        ));
+    }
+
+    // merchant completes the signature
+    let (signed_mutual_close_tx, txid_be, _) =
+        transactions::btc::completely_sign_multi_sig_transaction::<Testnet>(
+            &mutual_tx_params,
+            &cust_signature,
+            false,
+            None,
+            &sk,
+        );
+    let signed_tx = signed_mutual_close_tx.to_transaction_bytes().unwrap();
+
+    return Ok((signed_tx, txid_be.to_vec()));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1019,5 +1118,77 @@ mod tests {
         println!("txid_be: {}", hex::encode(txid_be));
         println!("txid_le: {}", hex::encode(txid_le));
         println!("prevout: {}", hex::encode(prevout));
+    }
+
+    #[test]
+    fn form_mutual_close_transaction() {
+        let escrow_input = UtxoInput {
+            address_format: String::from("p2wsh"),
+            // outpoint + txid
+            transaction_id: hex::decode(
+                "f4df16149735c2963832ccaa9627f4008a06291e8b932c2fc76b3a5d62d462e1",
+            )
+            .unwrap(),
+            index: 0,
+            redeem_script: None,
+            script_pub_key: None,
+            utxo_amount: Some(10 * SATOSHI),
+            sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+        };
+
+        let cust_escrow_sk =
+            hex::decode("4157697b6428532758a9d0f9a73ce58befe3fd665797427d1c5bb3d33f6a132e")
+                .unwrap();
+        let merch_escrow_sk =
+            hex::decode("1a1971e1379beec67178509e25b6772c66cb67bb04d70df2b4bcdb8c08a00827")
+                .unwrap();
+
+        let cust_pk =
+            hex::decode("027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb")
+                .unwrap();
+        let cust_close_pk =
+            hex::decode("027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb")
+                .unwrap();
+        let merch_pk =
+            hex::decode("03af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb353")
+                .unwrap();
+        let merch_close_pk =
+            hex::decode("02ab573100532827bd0e44b4353e4eaa9c79afbc93f69454a4a44d9fea8c45b5af")
+                .unwrap();
+
+        let final_cust_bal = 8 * SATOSHI;
+        let final_merch_bal = 2 * SATOSHI;
+
+        let res_cust_signature = customer_sign_mutual_close_transaction(
+            &escrow_input,
+            &cust_pk,
+            &merch_pk,
+            &cust_close_pk,
+            &merch_close_pk,
+            final_cust_bal,
+            final_merch_bal,
+            &cust_escrow_sk,
+        );
+        assert!(res_cust_signature.is_ok());
+        let cust_signature = res_cust_signature.unwrap();
+        println!("cust sig: {}", hex::encode(&cust_signature));
+
+        // now get merchant to sign as well
+        let res = merchant_sign_mutual_close_transaction(
+            &escrow_input,
+            &cust_pk,
+            &merch_pk,
+            &cust_close_pk,
+            &merch_close_pk,
+            final_cust_bal,
+            final_merch_bal,
+            &cust_signature,
+            &merch_escrow_sk,
+        );
+        assert!(res.is_ok());
+        let (signed_mutual_tx, txid_be) = res.unwrap();
+
+        println!("mutual close tx: {}", hex::encode(&signed_mutual_tx));
+        println!("txid: {}", hex::encode(&txid_be));
     }
 }
