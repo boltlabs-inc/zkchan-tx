@@ -876,8 +876,9 @@ pub fn merchant_sign_mutual_close_transaction(
             &sk,
         );
     let signed_tx = signed_mutual_close_tx.to_transaction_bytes().unwrap();
-
-    return Ok((signed_tx, txid_be.to_vec()));
+    let mut txid_le = txid_be.to_vec();
+    txid_le.reverse();
+    return Ok((signed_tx, txid_le));
 }
 
 #[cfg(test)]
