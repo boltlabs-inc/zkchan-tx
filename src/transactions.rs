@@ -1489,7 +1489,6 @@ pub mod btc {
                     }
                 };
                 let escrow_tx_hash = Sha256::digest(&Sha256::digest(&escrow_tx_preimage));
-                // println!("Tx hash: {}", hex::encode(&merch_tx_hash));
                 let msg = secp256k1::Message::parse_slice(&escrow_tx_hash).unwrap();
                 let escrow_sig_valid = verify(&msg, &escrow_signature, &pk_m);
                 if escrow_sig_valid {
@@ -1547,7 +1546,6 @@ pub mod btc {
 
                 // sanity check on the signatures to make sure not out of sync with current state
                 let merch_tx_hash = Sha256::digest(&Sha256::digest(&merch_tx_preimage));
-                // println!("Tx hash: {}", hex::encode(&merch_tx_hash));
                 let msg = secp256k1::Message::parse_slice(&merch_tx_hash).unwrap();
                 let merch_sig_valid = verify(&msg, &merch_signature, &pk_m);
 
