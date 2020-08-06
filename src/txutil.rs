@@ -7,8 +7,9 @@ use transactions::btc::{
     completely_sign_multi_sig_transaction, compute_transaction_id_without_witness,
     create_escrow_transaction, encode_public_key_for_transaction,
     generate_signature_for_multi_sig_transaction, get_private_key, merch_generate_transaction_id,
-    sign_cust_close_claim_transaction_helper, sign_escrow_transaction,
-    sign_merch_claim_transaction_helper, sign_merch_dispute_transaction_helper,
+    sign_child_transaction_helper, sign_cust_close_claim_transaction_helper,
+    sign_escrow_transaction, sign_merch_claim_transaction_helper,
+    sign_merch_dispute_transaction_helper,
 };
 use transactions::{ChangeOutput, MultiSigOutput, Output, UtxoInput};
 
@@ -881,6 +882,41 @@ pub fn merchant_sign_mutual_close_transaction(
     return Ok((signed_tx, txid_le));
 }
 
+pub fn create_child_transaction(
+    txid_le: Vec<u8>,
+    index: u32,
+    input_sats: i64,
+    output_sats: i64,
+    output_pk: &Vec<u8>,
+    private_key: &Vec<u8>,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
+    check_sk_length!(private_key);
+    check_pk_length!(output_pk);
+    let the_sk = handle_error!(SecretKey::parse_slice(&private_key));
+    let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&the_sk, false);
+    if output_sats > input_sats {
+        return Err(format!("output_sats should be less than input_sats"));
+    }
+
+    let input = UtxoInput {
+        address_format: String::from("p2wpkh"),
+        transaction_id: txid_le,
+        index: index,
+        redeem_script: None,
+        script_pub_key: None,
+        utxo_amount: Some(input_sats),
+        sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+    };
+
+    let output = Output {
+        amount: output_sats,
+        pubkey: output_pk.clone(),
+    };
+
+    let (signed_tx, txid) = handle_error!(sign_child_transaction_helper(input, output, &sk));
+    Ok((signed_tx, txid))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -889,14 +925,7 @@ mod tests {
     use std::str::FromStr;
     use transactions::{UtxoInput, SATOSHI};
 
-    #[test]
-    fn form_single_escrow_transaction() {
-        // create customer utxo input
-        let txid = hex::decode("d21502c0d197e86b2847ff4c275ae989e06a52f09d60425701c2908217444326")
-            .unwrap();
-        let index = 0;
-
-        // customer's keypair for utxo
+    fn get_helper_utxo() -> (Vec<u8>, Vec<u8>) {
         let cust_private_key = BitcoinPrivateKey::<Testnet>::from_str(
             "cPmiXrwUfViwwkvZ5NXySiHEudJdJ5aeXU4nx4vZuKWTUibpJdrn",
         )
@@ -914,6 +943,19 @@ mod tests {
             hex::decode("027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb")
                 .unwrap()
         );
+
+        return (cust_input_pk, cust_input_sk);
+    }
+
+    #[test]
+    fn form_single_escrow_transaction() {
+        // create customer utxo input
+        let txid = hex::decode("d21502c0d197e86b2847ff4c275ae989e06a52f09d60425701c2908217444326")
+            .unwrap();
+        let index = 0;
+
+        // customer's keypair for utxo
+        let (_, cust_input_sk) = get_helper_utxo();
 
         let good_input_sats = 3 * SATOSHI;
         let bad_input_sats = 2 * SATOSHI;
@@ -1191,5 +1233,36 @@ mod tests {
 
         println!("mutual close tx: {}", hex::encode(&signed_mutual_tx));
         println!("txid: {}", hex::encode(&txid_be));
+    }
+
+    #[test]
+    fn claim_child_transaction_outputs() {
+        let txid = hex::decode("d21502c0d197e86b2847ff4c275ae989e06a52f09d60425701c2908217444326")
+            .unwrap();
+        let index = 3;
+
+        // customer's keypair for utxo
+        let (_, cust_input_sk) = get_helper_utxo();
+
+        let good_input_sats = 3 * SATOSHI;
+        let tx_fee = 1000;
+        let output_sats = good_input_sats - tx_fee;
+
+        let output_pk =
+            hex::decode("034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa")
+                .unwrap();
+
+        let (signed_tx, txid_buf) = create_child_transaction(
+            txid,
+            index,
+            good_input_sats,
+            output_sats,
+            &output_pk,
+            &cust_input_sk,
+        ).unwrap();
+
+        println!("signed tx: {}", hex::encode(&signed_tx));
+        println!("txid: {}", hex::encode(&txid_buf));
+        assert_eq!(hex::encode(&txid_buf), "008529b4f82b930580fe3cc388880ac8f77ba758867604e327c3d49cd014a668");
     }
 }

@@ -1584,6 +1584,79 @@ pub mod btc {
             }
         }
     }
+
+    pub fn sign_child_transaction_helper<N: BitcoinNetwork>(
+        input: UtxoInput,
+        output: Output,
+        private_key: &BitcoinPrivateKey<N>,
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let version = 2;
+        let lock_time = 0;
+        let address_format = match input.address_format.as_str() {
+            "p2wpkh" => BitcoinFormat::Bech32, // output of cust-close-*-tx
+            _ => {
+                return Err(format!(
+                    "do not currently support specified address format: {}",
+                    input.address_format
+                ))
+            }
+        };
+        let redeem_script = match (input.redeem_script.as_ref(), address_format.clone()) {
+            (Some(script), BitcoinFormat::P2WSH) => Some(script.clone()),
+            (_, _) => None,
+        };
+        let script_pub_key = input
+            .script_pub_key
+            .map(|script| hex::decode(script).unwrap());
+        let sequence = input.sequence.map(|seq| seq.to_vec());
+
+        let address = match address_format {
+            BitcoinFormat::Bech32 => handle_error!(private_key.to_address(&address_format)),
+            _ => {
+                return Err(format!(
+                    "address format {} not supported right now",
+                    address_format
+                ))
+            }
+        };
+
+        let tx_input = handle_error!(BitcoinTransactionInput::<N>::new(
+            input.transaction_id.clone(),
+            input.index,
+            Some(address),
+            Some(BitcoinAmount::from_satoshi(input.utxo_amount.unwrap()).unwrap()),
+            redeem_script,
+            script_pub_key,
+            sequence,
+            SIGHASH_ALL,
+        ));
+
+        // add P2WPKH output
+        let output_script_pubkey = create_p2wpkh_scriptpubkey::<N>(&output.pubkey, false);
+        let p2wpkh_output = BitcoinTransactionOutput {
+            amount: BitcoinAmount(output.amount),
+            script_pub_key: output_script_pubkey,
+        };
+
+        let transaction_parameters = BitcoinTransactionParameters::<N> {
+            version: version,
+            inputs: vec![tx_input],
+            outputs: vec![p2wpkh_output],
+            lock_time: lock_time,
+            segwit_flag: true,
+        };
+
+        let transaction = handle_error!(BitcoinTransaction::<N>::new(&transaction_parameters));
+        let signed_tx = match transaction.sign(&private_key) {
+            Ok(s) => s,
+            Err(e) => return Err(format!("Failed to sign transaction: {:?}", e)),
+        };
+
+        let signed_tx_bytes = handle_error!(signed_tx.to_transaction_bytes());
+        let txid_str = handle_error!(signed_tx.to_transaction_id());
+        let txid_bytes = handle_error!(hex::decode(txid_str.to_string()));
+        Ok((signed_tx_bytes, txid_bytes))
+    }
 }
 
 /* Zcash transactions - shielded and transparent */
