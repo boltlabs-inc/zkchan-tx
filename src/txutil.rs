@@ -1040,24 +1040,7 @@ mod tests {
             sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
         };
 
-        let cust_private_key = BitcoinPrivateKey::<Testnet>::from_str(
-            "cPmiXrwUfViwwkvZ5NXySiHEudJdJ5aeXU4nx4vZuKWTUibpJdrn",
-        )
-        .unwrap();
-        let cust_input_sk =
-            hex::decode("4157697b6428532758a9d0f9a73ce58befe3fd665797427d1c5bb3d33f6a132e")
-                .unwrap();
-        let cust_input_pk = cust_private_key
-            .to_public_key()
-            .to_secp256k1_public_key()
-            .serialize_compressed()
-            .to_vec();
-        assert_eq!(
-            cust_input_pk,
-            hex::decode("027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb")
-                .unwrap()
-        );
-
+        let (cust_input_pk, cust_input_sk) = get_helper_utxo();
         let cust_utxo = txutil::create_transaction_input(&cust_input, &cust_input_pk).unwrap();
 
         // create merchant utxo input
@@ -1259,10 +1242,14 @@ mod tests {
             output_sats,
             &output_pk,
             &cust_input_sk,
-        ).unwrap();
+        )
+        .unwrap();
 
         println!("signed tx: {}", hex::encode(&signed_tx));
         println!("txid: {}", hex::encode(&txid_buf));
-        assert_eq!(hex::encode(&txid_buf), "6641ad3b397bfafbf7c2da144e0be04b71d2910afc9a8efebccdfb01ff3916c6");
+        assert_eq!(
+            hex::encode(&txid_buf),
+            "6641ad3b397bfafbf7c2da144e0be04b71d2910afc9a8efebccdfb01ff3916c6"
+        );
     }
 }

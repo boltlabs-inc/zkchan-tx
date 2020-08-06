@@ -811,6 +811,7 @@ pub mod btc {
         val_cpfp: i64,
         cust_pubkey: &Vec<u8>,
         merch_pubkey: &Vec<u8>,
+        merch_child_pubkey: &Vec<u8>,
         merch_close_pubkey: &Vec<u8>,
         self_delay_be: &[u8; 2],
     ) -> Result<BitcoinTransactionParameters<N>, String> {
@@ -883,7 +884,7 @@ pub mod btc {
             script_pub_key: musig_script_pubkey,
         };
         // output 2: CPFP P2WPKH output to merch child
-        let output2_script_pubkey = create_p2wpkh_scriptpubkey::<N>(&merch_pubkey, false);
+        let output2_script_pubkey = create_p2wpkh_scriptpubkey::<N>(&merch_child_pubkey, false);
         // println!("(2) to_merchant: {}", hex::encode(&output4_script_pubkey));
         let cpfp = BitcoinTransactionOutput {
             amount: BitcoinAmount::from_satoshi(val_cpfp).unwrap(),
@@ -919,6 +920,7 @@ pub mod btc {
         escrow_txid_be: Vec<u8>,
         cust_pk: Vec<u8>,
         merch_pk: Vec<u8>,
+        merch_child_pk: Vec<u8>,
         merch_close_pk: Vec<u8>,
         cust_bal_sats: i64,
         merch_bal_sats: i64,
@@ -951,6 +953,7 @@ pub mod btc {
             val_cpfp,
             &cust_pk,
             &merch_pk,
+            &merch_child_pk,
             &merch_close_pk,
             &to_self_delay_be,
         ) {
@@ -1980,10 +1983,14 @@ mod tests {
             hex::decode("03af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb353")
                 .unwrap();
         let merch_private_key = "cNTSD7W8URSCmfPTvNf2B5gyKe2wwyNomkCikVhuHPCsFgBUKrAV"; // testnet
+        let merch_child_pk =
+        hex::decode("03e9e77514212c68df25a35840eceba9d2a68359d46903a224b07d66b55ffc77d8")
+            .unwrap();
+
         let merch_close_pk =
             hex::decode("02ab573100532827bd0e44b4353e4eaa9c79afbc93f69454a4a44d9fea8c45b5af")
                 .unwrap();
-
+    
         let expected_redeem_script = hex::decode("522103af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb35321027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb52ae").unwrap();
         let redeem_script =
             transactions::btc::serialize_p2wsh_escrow_redeem_script(&cust_pk, &merch_pk);
@@ -2018,6 +2025,7 @@ mod tests {
             val_cpfp,
             &cust_pk,
             &merch_pk,
+            &merch_child_pk,
             &merch_close_pk,
             &to_self_delay,
         )
@@ -2029,7 +2037,7 @@ mod tests {
             "merch-close tx raw preimage: {}",
             hex::encode(&merch_tx_preimage)
         );
-        let expected_merch_tx_preimage = hex::decode("02000000fdd1def69203bbf96a6ebc56166716401302fcd06eadd147682e8898ba19bee43bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e70665044d9827f206a476a0d61db36348599bc39a5ab39f384da7c50885b726f0ec5b05e0000000047522103af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb35321027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb52ae00ca9a3b00000000ffffffff4e5cbca89409ff2b12c4eee4c04141f0f51ad8f996db8d5cc6af160bf70de70d0000000001000000").unwrap();
+        let expected_merch_tx_preimage = hex::decode("02000000fdd1def69203bbf96a6ebc56166716401302fcd06eadd147682e8898ba19bee43bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e70665044d9827f206a476a0d61db36348599bc39a5ab39f384da7c50885b726f0ec5b05e0000000047522103af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb35321027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb52ae00ca9a3b00000000ffffffff9fd02e61301487e3261a481363e334d58818d18b7578bc9db28ac6f3ea18bbf00000000001000000").unwrap();
         assert_eq!(merch_tx_preimage, expected_merch_tx_preimage);
 
         // customer signs the preimage and sends signature to merchant
