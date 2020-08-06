@@ -1263,6 +1263,6 @@ mod tests {
 
         println!("signed tx: {}", hex::encode(&signed_tx));
         println!("txid: {}", hex::encode(&txid_buf));
-        assert_eq!(hex::encode(&txid_buf), "008529b4f82b930580fe3cc388880ac8f77ba758867604e327c3d49cd014a668");
+        assert_eq!(hex::encode(&txid_buf), "6641ad3b397bfafbf7c2da144e0be04b71d2910afc9a8efebccdfb01ff3916c6");
     }
 }
