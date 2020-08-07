@@ -52,6 +52,7 @@ pub struct ClosePublicKeys {
     pub cust_close_pk: Vec<u8>,
     pub merch_pk: Vec<u8>,
     pub merch_close_pk: Vec<u8>,
+    pub merch_child_pk: Vec<u8>,
     pub merch_disp_pk: Vec<u8>,
     pub rev_lock: FixedSizeArray32,
 }
@@ -2096,6 +2097,10 @@ mod tests {
                 "02ab573100532827bd0e44b4353e4eaa9c79afbc93f69454a4a44d9fea8c45b5af",
             )
             .unwrap(),
+            merch_child_pk: hex::decode(
+                "03e9e77514212c68df25a35840eceba9d2a68359d46903a224b07d66b55ffc77d8",
+            )
+            .unwrap(),
             merch_disp_pk: hex::decode(
                 "021882b66a9c4ec1b8fc29ac37fbf4607b8c4f1bfe2cc9a49bc1048eb57bcebe67",
             )
@@ -2192,6 +2197,10 @@ mod tests {
             .unwrap(),
             merch_close_pk: hex::decode(
                 "02ab573100532827bd0e44b4353e4eaa9c79afbc93f69454a4a44d9fea8c45b5af",
+            )
+            .unwrap(),
+            merch_child_pk: hex::decode(
+                "03e9e77514212c68df25a35840eceba9d2a68359d46903a224b07d66b55ffc77d8",
             )
             .unwrap(),
             merch_disp_pk: hex::decode(
