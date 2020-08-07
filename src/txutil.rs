@@ -116,7 +116,10 @@ pub fn customer_form_escrow_transaction(
         .serialize_compressed()
         .to_vec();
 
-    let cust_utxo = txutil::create_transaction_input(&cust_input, &cust_input_pk).unwrap();
+    let cust_utxo = handle_error!(txutil::create_transaction_input(
+        &cust_input,
+        &cust_input_pk
+    ));
 
     let (_escrow_tx_preimage, unsigned_escrow_tx) = handle_error!(
         transactions::btc::form_single_escrow_transaction::<Testnet>(
@@ -239,13 +242,13 @@ pub fn create_transaction_input(
 
     let public_key = BitcoinPublicKey::<Testnet>::from_secp256k1_public_key(pubkey, true);
     let address = match address_format {
-        BitcoinFormat::P2SH_P2WPKH => BitcoinAddress::<Testnet>::p2sh_p2wpkh(&public_key).unwrap(),
-        BitcoinFormat::Bech32 => BitcoinAddress::<Testnet>::p2pkh(&public_key).unwrap(),
+        BitcoinFormat::P2SH_P2WPKH => handle_error!(BitcoinAddress::<Testnet>::p2sh_p2wpkh(&public_key)),
+        BitcoinFormat::Bech32 => handle_error!(BitcoinAddress::<Testnet>::p2pkh(&public_key)),
         _ => return Err(format!("address format not supported")),
     };
 
     let utxo_input =
-        transactions::btc::form_transaction_input::<Testnet>(&utxo, &address, &utxo_pk).unwrap();
+        transactions::btc::form_transaction_input::<Testnet>(&utxo, &address, &utxo_pk)?;
 
     Ok(utxo_input)
 }

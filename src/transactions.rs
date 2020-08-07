@@ -909,19 +909,19 @@ pub mod btc {
 
     pub fn create_merch_close_transaction_preimage<N: BitcoinNetwork>(
         transaction_parameters: &BitcoinTransactionParameters<N>,
-    ) -> (Vec<u8>, BitcoinTransaction<N>) {
-        let transaction = BitcoinTransaction::<N>::new(transaction_parameters).unwrap();
-        let hash_preimage = transaction.segwit_hash_preimage(0, SIGHASH_ALL).unwrap();
+    ) -> Result<(Vec<u8>, BitcoinTransaction<N>), String> {
+        let transaction = handle_error!(BitcoinTransaction::<N>::new(transaction_parameters));
+        let hash_preimage = handle_error!(transaction.segwit_hash_preimage(0, SIGHASH_ALL));
 
-        return (hash_preimage, transaction);
+        return Ok((hash_preimage, transaction));
     }
 
     pub fn merchant_form_close_transaction<N: BitcoinNetwork>(
         escrow_txid_be: Vec<u8>,
         cust_pk: Vec<u8>,
         merch_pk: Vec<u8>,
-        merch_child_pk: Vec<u8>,
         merch_close_pk: Vec<u8>,
+        merch_child_pk: Vec<u8>,
         cust_bal_sats: i64,
         merch_bal_sats: i64,
         fee_mc: i64,
@@ -947,7 +947,7 @@ pub mod btc {
             utxo_amount: Some(cust_bal_sats + merch_bal_sats),
             sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
         };
-        let tx_params = match create_merch_close_transaction_params::<N>(
+        let tx_params = create_merch_close_transaction_params::<N>(
             &input,
             fee_mc,
             val_cpfp,
@@ -956,12 +956,9 @@ pub mod btc {
             &merch_child_pk,
             &merch_close_pk,
             &to_self_delay_be,
-        ) {
-            Ok(t) => t,
-            Err(e) => return Err(e.to_string()),
-        };
+        )?;
 
-        let (merch_tx_preimage, _) = create_merch_close_transaction_preimage::<N>(&tx_params);
+        let (merch_tx_preimage, _) = create_merch_close_transaction_preimage::<N>(&tx_params)?;
 
         Ok((merch_tx_preimage, tx_params))
     }
@@ -1984,13 +1981,13 @@ mod tests {
                 .unwrap();
         let merch_private_key = "cNTSD7W8URSCmfPTvNf2B5gyKe2wwyNomkCikVhuHPCsFgBUKrAV"; // testnet
         let merch_child_pk =
-        hex::decode("03e9e77514212c68df25a35840eceba9d2a68359d46903a224b07d66b55ffc77d8")
-            .unwrap();
+            hex::decode("03e9e77514212c68df25a35840eceba9d2a68359d46903a224b07d66b55ffc77d8")
+                .unwrap();
 
         let merch_close_pk =
             hex::decode("02ab573100532827bd0e44b4353e4eaa9c79afbc93f69454a4a44d9fea8c45b5af")
                 .unwrap();
-    
+
         let expected_redeem_script = hex::decode("522103af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb35321027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb52ae").unwrap();
         let redeem_script =
             transactions::btc::serialize_p2wsh_escrow_redeem_script(&cust_pk, &merch_pk);
@@ -2032,7 +2029,7 @@ mod tests {
         .unwrap();
 
         let (merch_tx_preimage, _) =
-            transactions::btc::create_merch_close_transaction_preimage::<Testnet>(&tx_params);
+            transactions::btc::create_merch_close_transaction_preimage::<Testnet>(&tx_params).unwrap();
         println!(
             "merch-close tx raw preimage: {}",
             hex::encode(&merch_tx_preimage)
