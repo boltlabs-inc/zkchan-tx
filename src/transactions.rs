@@ -812,8 +812,8 @@ pub mod btc {
         val_cpfp: i64,
         cust_pubkey: &Vec<u8>,
         merch_pubkey: &Vec<u8>,
-        merch_child_pubkey: &Vec<u8>,
         merch_close_pubkey: &Vec<u8>,
+        merch_child_pubkey: &Vec<u8>,
         self_delay_be: &[u8; 2],
     ) -> Result<BitcoinTransactionParameters<N>, String> {
         let version = 2;
@@ -954,8 +954,8 @@ pub mod btc {
             val_cpfp,
             &cust_pk,
             &merch_pk,
-            &merch_child_pk,
             &merch_close_pk,
+            &merch_child_pk,
             &to_self_delay_be,
         )?;
 
@@ -1981,14 +1981,13 @@ mod tests {
             hex::decode("03af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb353")
                 .unwrap();
         let merch_private_key = "cNTSD7W8URSCmfPTvNf2B5gyKe2wwyNomkCikVhuHPCsFgBUKrAV"; // testnet
-        let merch_child_pk =
-            hex::decode("03e9e77514212c68df25a35840eceba9d2a68359d46903a224b07d66b55ffc77d8")
-                .unwrap();
-
         let merch_close_pk =
             hex::decode("02ab573100532827bd0e44b4353e4eaa9c79afbc93f69454a4a44d9fea8c45b5af")
                 .unwrap();
-
+                let merch_child_pk =
+                hex::decode("03e9e77514212c68df25a35840eceba9d2a68359d46903a224b07d66b55ffc77d8")
+                    .unwrap();
+        
         let expected_redeem_script = hex::decode("522103af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb35321027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb52ae").unwrap();
         let redeem_script =
             transactions::btc::serialize_p2wsh_escrow_redeem_script(&cust_pk, &merch_pk);
@@ -2023,14 +2022,15 @@ mod tests {
             val_cpfp,
             &cust_pk,
             &merch_pk,
-            &merch_child_pk,
             &merch_close_pk,
+            &merch_child_pk,
             &to_self_delay,
         )
         .unwrap();
 
         let (merch_tx_preimage, _) =
-            transactions::btc::create_merch_close_transaction_preimage::<Testnet>(&tx_params).unwrap();
+            transactions::btc::create_merch_close_transaction_preimage::<Testnet>(&tx_params)
+                .unwrap();
         println!(
             "merch-close tx raw preimage: {}",
             hex::encode(&merch_tx_preimage)
