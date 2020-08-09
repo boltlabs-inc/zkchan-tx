@@ -442,12 +442,15 @@ pub mod btc {
         // types of UTXO inputs to support
         let address_format = match input.address_format.as_str() {
             "p2pkh" => BitcoinFormat::P2PKH,
+            "p2wpkh" => BitcoinFormat::Bech32,
             "p2sh_p2wpkh" => BitcoinFormat::P2SH_P2WPKH,
             "p2wsh" => BitcoinFormat::P2WSH,
-            _ => panic!(
-                "do not currently support specified address format as funding input: {}",
-                input.address_format
-            ),
+            _ => {
+                return Err(format!(
+                    "do not currently support specified address format as funding input: {}",
+                    input.address_format
+                ))
+            }
         };
         let redeem_script = match (input.redeem_script.as_ref(), address_format.clone()) {
             (Some(script), _) => Some(script.clone()),
@@ -1658,6 +1661,98 @@ pub mod btc {
         let txid_bytes = handle_error!(hex::decode(txid_str.to_string()));
         Ok((signed_tx_bytes, txid_bytes))
     }
+
+    pub fn sign_child_transaction_to_bump_fee_helper<N: BitcoinNetwork>(
+        input1: UtxoInput,
+        private_key1: &BitcoinPrivateKey<N>,
+        input2: UtxoInput,
+        private_key2: &BitcoinPrivateKey<N>,
+        output: Output,
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let version = 2;
+        let lock_time = 0;
+
+        let utxo1_address = private_key1.to_address(&BitcoinFormat::Bech32).unwrap();
+        let public_key1 = private_key1
+            .to_public_key()
+            .to_secp256k1_public_key()
+            .serialize_compressed()
+            .to_vec();
+
+        let mut cpfp_input =
+            transactions::btc::form_transaction_input::<N>(&input1, &utxo1_address, &public_key1)
+                .unwrap();
+
+        let address_format = match input2.address_format.as_str() {
+            "p2pkh" => BitcoinFormat::P2PKH,
+            "p2wpkh" => BitcoinFormat::Bech32,
+            "p2sh_p2wpkh" => BitcoinFormat::P2SH_P2WPKH,
+            "p2wsh" => BitcoinFormat::P2WSH,
+            _ => return Err(format!("not supported address format specified")),
+        };
+
+        let utxo2_address = private_key2.to_address(&address_format).unwrap();
+        let public_key2 = private_key2
+            .to_public_key()
+            .to_secp256k1_public_key()
+            .serialize_compressed()
+            .to_vec();
+
+        let utxo_input =
+            transactions::btc::form_transaction_input::<N>(&input2, &utxo2_address, &public_key2)
+                .unwrap();
+
+        // add P2WPKH output
+        let output_script_pubkey = create_p2wpkh_scriptpubkey::<N>(&output.pubkey, false);
+        let p2wpkh_output = BitcoinTransactionOutput {
+            amount: BitcoinAmount(output.amount),
+            script_pub_key: output_script_pubkey,
+        };
+
+        let transaction_parameters = BitcoinTransactionParameters::<N> {
+            version: version,
+            inputs: vec![cpfp_input.clone()],
+            outputs: vec![p2wpkh_output.clone()],
+            lock_time: lock_time,
+            segwit_flag: true,
+        };
+
+        let transaction = handle_error!(BitcoinTransaction::<N>::new(&transaction_parameters));
+        // generate the signature on preimage and encode the public key
+        let preimage1 = transaction.segwit_hash_preimage(0, SIGHASH_ALL).unwrap();
+        let signature1 = transactions::btc::generate_signature_for_multi_sig_transaction::<N>(
+            &preimage1,
+            &private_key1,
+        )
+        .unwrap();
+
+        // complete signing the cpfp utxo (manually)
+        let public_key1_encoded = [vec![public_key1.len() as u8], public_key1].concat();
+        cpfp_input
+            .witnesses
+            .append(&mut vec![signature1.clone(), public_key1_encoded.clone()]);
+        cpfp_input.script_sig = vec![];
+        cpfp_input.is_signed = true;
+
+        // now we can sign the second utxo
+        let transaction_parameters = BitcoinTransactionParameters::<N> {
+            version: version,
+            inputs: vec![cpfp_input, utxo_input],
+            outputs: vec![p2wpkh_output],
+            lock_time: lock_time,
+            segwit_flag: true,
+        };
+        let transaction = handle_error!(BitcoinTransaction::<N>::new(&transaction_parameters));
+        let signed_tx = match transaction.sign(&private_key2) {
+            Ok(s) => s,
+            Err(e) => return Err(format!("Failed to sign transaction: {:?}", e)),
+        };
+
+        let signed_tx_bytes = handle_error!(signed_tx.to_transaction_bytes());
+        let txid_str = handle_error!(signed_tx.to_transaction_id());
+        let txid_bytes = handle_error!(hex::decode(txid_str.to_string()));
+        Ok((signed_tx_bytes, txid_bytes))
+    }
 }
 
 /* Zcash transactions - shielded and transparent */
@@ -1984,10 +2079,10 @@ mod tests {
         let merch_close_pk =
             hex::decode("02ab573100532827bd0e44b4353e4eaa9c79afbc93f69454a4a44d9fea8c45b5af")
                 .unwrap();
-                let merch_child_pk =
-                hex::decode("03e9e77514212c68df25a35840eceba9d2a68359d46903a224b07d66b55ffc77d8")
-                    .unwrap();
-        
+        let merch_child_pk =
+            hex::decode("03e9e77514212c68df25a35840eceba9d2a68359d46903a224b07d66b55ffc77d8")
+                .unwrap();
+
         let expected_redeem_script = hex::decode("522103af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb35321027160fb5e48252f02a00066dfa823d15844ad93e04f9c9b746e1f28ed4a1eaddb52ae").unwrap();
         let redeem_script =
             transactions::btc::serialize_p2wsh_escrow_redeem_script(&cust_pk, &merch_pk);

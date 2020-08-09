@@ -7,9 +7,9 @@ use transactions::btc::{
     completely_sign_multi_sig_transaction, compute_transaction_id_without_witness,
     create_escrow_transaction, encode_public_key_for_transaction,
     generate_signature_for_multi_sig_transaction, get_private_key, merch_generate_transaction_id,
-    sign_child_transaction_helper, sign_cust_close_claim_transaction_helper,
-    sign_escrow_transaction, sign_merch_claim_transaction_helper,
-    sign_merch_dispute_transaction_helper,
+    sign_child_transaction_helper, sign_child_transaction_to_bump_fee_helper,
+    sign_cust_close_claim_transaction_helper, sign_escrow_transaction,
+    sign_merch_claim_transaction_helper, sign_merch_dispute_transaction_helper,
 };
 use transactions::{ChangeOutput, MultiSigOutput, Output, UtxoInput};
 
@@ -242,7 +242,9 @@ pub fn create_transaction_input(
 
     let public_key = BitcoinPublicKey::<Testnet>::from_secp256k1_public_key(pubkey, true);
     let address = match address_format {
-        BitcoinFormat::P2SH_P2WPKH => handle_error!(BitcoinAddress::<Testnet>::p2sh_p2wpkh(&public_key)),
+        BitcoinFormat::P2SH_P2WPKH => {
+            handle_error!(BitcoinAddress::<Testnet>::p2sh_p2wpkh(&public_key))
+        }
         BitcoinFormat::Bech32 => handle_error!(BitcoinAddress::<Testnet>::p2pkh(&public_key)),
         _ => return Err(format!("address format not supported")),
     };
@@ -920,6 +922,66 @@ pub fn create_child_transaction(
     Ok((signed_tx, txid))
 }
 
+pub fn create_child_transaction_to_bump_fee(
+    txid1_le: Vec<u8>,
+    index1: u32,
+    input_sats1: i64,
+    private_key1: &Vec<u8>,
+    txid2_le: Vec<u8>,
+    index2: u32,
+    address_format2: String,
+    input_sats2: i64,
+    private_key2: &Vec<u8>,
+    redeem_script: Option<Vec<u8>>,
+    tx_fee: i64,
+    output_pk: &Vec<u8>,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
+    check_sk_length!(private_key1);
+    check_sk_length!(private_key2);
+    check_pk_length!(output_pk);
+    let the_sk1 = handle_error!(SecretKey::parse_slice(&private_key1));
+    let the_sk2 = handle_error!(SecretKey::parse_slice(&private_key2));
+    let sk1 = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&the_sk1, false);
+    let sk2 = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&the_sk2, false);
+
+    if (input_sats1 + input_sats2) < tx_fee {
+        return Err(format!(
+            "tx fee specified is invalid given input utxo amounts"
+        ));
+    }
+
+    let input1 = UtxoInput {
+        address_format: String::from("p2wpkh"),
+        transaction_id: txid1_le,
+        index: index1,
+        redeem_script: None,
+        script_pub_key: None,
+        utxo_amount: Some(input_sats1),
+        sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+    };
+
+    let input2 = UtxoInput {
+        address_format: address_format2, // p2wpkh
+        transaction_id: txid2_le,
+        index: index2,
+        redeem_script: redeem_script,
+        script_pub_key: None,
+        utxo_amount: Some(input_sats2),
+        sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+    };
+
+    let output_sats = input_sats1 + input_sats2 - tx_fee;
+    let output = Output {
+        amount: output_sats,
+        pubkey: output_pk.clone(),
+    };
+
+    let (signed_tx, txid) = handle_error!(sign_child_transaction_to_bump_fee_helper(
+        input1, &sk1, input2, &sk2, output
+    ));
+    Ok((signed_tx, txid))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -928,7 +990,7 @@ mod tests {
     use std::str::FromStr;
     use transactions::{UtxoInput, SATOSHI};
 
-    fn get_helper_utxo() -> (Vec<u8>, Vec<u8>) {
+    fn get_helper_utxo1() -> (Vec<u8>, Vec<u8>) {
         let cust_private_key = BitcoinPrivateKey::<Testnet>::from_str(
             "cPmiXrwUfViwwkvZ5NXySiHEudJdJ5aeXU4nx4vZuKWTUibpJdrn",
         )
@@ -950,6 +1012,27 @@ mod tests {
         return (cust_input_pk, cust_input_sk);
     }
 
+    fn get_helper_utxo2() -> (Vec<u8>, Vec<u8>) {
+        let merch_private_key = BitcoinPrivateKey::<Testnet>::from_str(
+            "cNTSD7W8URSCmfPTvNf2B5gyKe2wwyNomkCikVhuHPCsFgBUKrAV",
+        )
+        .unwrap();
+        let merch_input_sk =
+            hex::decode("1a1971e1379beec67178509e25b6772c66cb67bb04d70df2b4bcdb8c08a00827")
+                .unwrap();
+        let merch_input_pk = merch_private_key
+            .to_public_key()
+            .to_secp256k1_public_key()
+            .serialize_compressed()
+            .to_vec();
+        assert_eq!(
+            merch_input_pk,
+            hex::decode("03af0530f244a154b278b34de709b84bb85bb39ff3f1302fc51ae275e5a45fb353")
+                .unwrap()
+        );
+        return (merch_input_pk, merch_input_sk);
+    }
+
     #[test]
     fn form_single_escrow_transaction() {
         // create customer utxo input
@@ -958,7 +1041,7 @@ mod tests {
         let index = 0;
 
         // customer's keypair for utxo
-        let (_, cust_input_sk) = get_helper_utxo();
+        let (_, cust_input_sk) = get_helper_utxo1();
 
         let good_input_sats = 3 * SATOSHI;
         let bad_input_sats = 2 * SATOSHI;
@@ -1043,7 +1126,7 @@ mod tests {
             sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
         };
 
-        let (cust_input_pk, cust_input_sk) = get_helper_utxo();
+        let (cust_input_pk, cust_input_sk) = get_helper_utxo1();
         let cust_utxo = txutil::create_transaction_input(&cust_input, &cust_input_pk).unwrap();
 
         // create merchant utxo input
@@ -1228,7 +1311,7 @@ mod tests {
         let index = 3;
 
         // customer's keypair for utxo
-        let (_, cust_input_sk) = get_helper_utxo();
+        let (_, cust_input_sk) = get_helper_utxo1();
 
         let good_input_sats = 3 * SATOSHI;
         let tx_fee = 1000;
@@ -1253,6 +1336,52 @@ mod tests {
         assert_eq!(
             hex::encode(&txid_buf),
             "6641ad3b397bfafbf7c2da144e0be04b71d2910afc9a8efebccdfb01ff3916c6"
+        );
+    }
+
+    #[test]
+    fn test_child_tx_to_bump_fee() {
+        let txid1 = hex::decode("d21502c0d197e86b2847ff4c275ae989e06a52f09d60425701c2908217444326")
+            .unwrap();
+        let index1 = 3;
+        let input_sats1 = 1000;
+
+        let txid2 = hex::decode("6641ad3b397bfafbf7c2da144e0be04b71d2910afc9a8efebccdfb01ff3916c6")
+            .unwrap();
+        let index2 = 0;
+        let input_sats2 = 3000;
+        let address_format2 = String::from("p2wpkh");
+        let redeem_script = None;
+
+        let tx_fee = 50;
+        let output_pk =
+            hex::decode("034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa")
+                .unwrap();
+
+        let (_, utxo_input_sk1) = get_helper_utxo1();
+        let (_, utxo_input_sk2) = get_helper_utxo2();
+
+        let (signed_tx, txid) = create_child_transaction_to_bump_fee(
+            txid1,
+            index1,
+            input_sats1,
+            &utxo_input_sk1,
+            txid2,
+            index2,
+            address_format2,
+            input_sats2,
+            &utxo_input_sk2,
+            redeem_script,
+            tx_fee,
+            &output_pk,
+        )
+        .unwrap();
+
+        println!("signed tx: {}", hex::encode(&signed_tx));
+        println!("txid: {}", hex::encode(&txid));
+        assert_eq!(
+            hex::encode(&txid),
+            "89cd64773f73e585b2e1b281d7f65621cb5a0937baa9c81cfaa90d4461c15181"
         );
     }
 }
