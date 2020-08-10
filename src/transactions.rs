@@ -1711,7 +1711,7 @@ pub mod btc {
 
         let transaction_parameters = BitcoinTransactionParameters::<N> {
             version: version,
-            inputs: vec![cpfp_input.clone()],
+            inputs: vec![cpfp_input.clone(), utxo_input.clone()],
             outputs: vec![p2wpkh_output.clone()],
             lock_time: lock_time,
             segwit_flag: true,
