@@ -657,26 +657,39 @@ pub fn customer_sign_cust_close_claim_transaction(
     index: u32,
     input_sats: i64,
     cust_sk: Vec<u8>,
-    cpfp_index: u32,
-    cpfp_input_sats: i64,
-    cpfp_sk: Vec<u8>,
     output_sats: i64,
     self_delay_be: [u8; 2],
     output_pk: Vec<u8>,
     rev_lock: Vec<u8>,
     cust_close_pk: Vec<u8>,
     merch_disp_pk: Vec<u8>,
+    cpfp_input: Option<(u32, i64)>,
+    cpfp_sk: Option<Vec<u8>>,
 ) -> Result<Vec<u8>, String> {
     check_sk_length!(cust_sk);
     check_pk_length!(cust_close_pk);
     check_pk_length!(merch_disp_pk);
-    let csk = handle_error!(SecretKey::parse_slice(&cust_sk)); 
-    let cp_sk = handle_error!(SecretKey::parse_slice(&cpfp_sk));       
+    let csk = handle_error!(SecretKey::parse_slice(&cust_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&csk, false);
-    let cpsk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&cp_sk, false);
+
+    let cp_sk = match cpfp_sk {
+        Some(s) => {
+            let _sk = handle_error!(SecretKey::parse_slice(&s));
+            let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&_sk, false);
+            Some(sk)
+        }
+        None => None,
+    };
+
+    let (cpfp_index, cpfp_input_sats) = match cpfp_input {
+        Some(s) => (s.0, s.1),
+        None => (0, 0),
+    };
 
     if output_sats > (input_sats + cpfp_input_sats) {
-        return Err(format!("output_sats should be less than input_sats + cpfp_input"));
+        return Err(format!(
+            "output_sats should be less than input_sats + cpfp_input"
+        ));
     }
     // create txOut
     let output = Output {
@@ -684,14 +697,17 @@ pub fn customer_sign_cust_close_claim_transaction(
         pubkey: output_pk,
     };
 
-    let cpfp_input = UtxoInput {
-        address_format: String::from("p2wpkh"),
-        transaction_id: txid_le.clone(),
-        index: cpfp_index,
-        redeem_script: None,
-        script_pub_key: None,
-        utxo_amount: Some(cpfp_input_sats),
-        sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+    let cpfp_tx_input = match cp_sk.is_some() {
+        true => Some(UtxoInput {
+            address_format: String::from("p2wpkh"),
+            transaction_id: txid_le.clone(),
+            index: cpfp_index,
+            redeem_script: None,
+            script_pub_key: None,
+            utxo_amount: Some(cpfp_input_sats),
+            sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+        }),
+        false => None,
     };
 
     // create rest of the transaction
@@ -700,8 +716,8 @@ pub fn customer_sign_cust_close_claim_transaction(
         index,
         input_sats,
         sk,
-        Some(cpfp_input),
-        Some(cpsk),
+        cpfp_tx_input,
+        cp_sk,
         output,
         self_delay_be,
         rev_lock,
