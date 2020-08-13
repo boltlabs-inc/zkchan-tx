@@ -2352,24 +2352,26 @@ mod tests {
             "cPmiXrwUfViwwkvZ5NXySiHEudJdJ5aeXU4nx4vZuKWTUibpJdrn",
         )
         .unwrap();
-        let (signed_tx, txid) =
-            transactions::btc::sign_cust_close_claim_transaction_helper(
-                txid_le,
-                index,
-                input_sats,
-                c_private_key,
-                None,
-                None,
-                output,
-                to_self_delay_be,
-                rev_lock,
-                merch_disp_pk,
-                cust_close_pk,
-            )
-            .unwrap();
+        let (signed_tx, txid) = transactions::btc::sign_cust_close_claim_transaction_helper(
+            txid_le,
+            index,
+            input_sats,
+            c_private_key,
+            None,
+            None,
+            output,
+            to_self_delay_be,
+            rev_lock,
+            merch_disp_pk,
+            cust_close_pk,
+        )
+        .unwrap();
         println!("Txid : {}", hex::encode(&txid));
         println!("Signed tx: {}", hex::encode(signed_tx));
-        assert_eq!(hex::encode(&txid), "63c9f765d8d14d60b951aba4b54bd38818186c9396cf8560500a2af989e3f519");
+        assert_eq!(
+            hex::encode(&txid),
+            "63c9f765d8d14d60b951aba4b54bd38818186c9396cf8560500a2af989e3f519"
+        );
     }
 
     #[test]

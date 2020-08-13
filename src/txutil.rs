@@ -657,6 +657,9 @@ pub fn customer_sign_cust_close_claim_transaction(
     index: u32,
     input_sats: i64,
     cust_sk: Vec<u8>,
+    cpfp_index: u32,
+    cpfp_input_sats: i64,
+    cpfp_sk: Vec<u8>,
     output_sats: i64,
     self_delay_be: [u8; 2],
     output_pk: Vec<u8>,
@@ -667,15 +670,28 @@ pub fn customer_sign_cust_close_claim_transaction(
     check_sk_length!(cust_sk);
     check_pk_length!(cust_close_pk);
     check_pk_length!(merch_disp_pk);
-    let csk = handle_error!(SecretKey::parse_slice(&cust_sk));
+    let csk = handle_error!(SecretKey::parse_slice(&cust_sk)); 
+    let cp_sk = handle_error!(SecretKey::parse_slice(&cpfp_sk));       
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&csk, false);
-    if output_sats > input_sats {
-        return Err(format!("output_sats should be less than input_sats"));
+    let cpsk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&cp_sk, false);
+
+    if output_sats > (input_sats + cpfp_input_sats) {
+        return Err(format!("output_sats should be less than input_sats + cpfp_input"));
     }
     // create txOut
     let output = Output {
         amount: output_sats,
         pubkey: output_pk,
+    };
+
+    let cpfp_input = UtxoInput {
+        address_format: String::from("p2wpkh"),
+        transaction_id: txid_le.clone(),
+        index: cpfp_index,
+        redeem_script: None,
+        script_pub_key: None,
+        utxo_amount: Some(cpfp_input_sats),
+        sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
     };
 
     // create rest of the transaction
@@ -684,8 +700,8 @@ pub fn customer_sign_cust_close_claim_transaction(
         index,
         input_sats,
         sk,
-        None,
-        None,
+        Some(cpfp_input),
+        Some(cpsk),
         output,
         self_delay_be,
         rev_lock,
