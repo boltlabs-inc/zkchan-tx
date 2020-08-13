@@ -7,9 +7,9 @@ use transactions::btc::{
     completely_sign_multi_sig_transaction, compute_transaction_id_without_witness,
     create_escrow_transaction, encode_public_key_for_transaction,
     generate_signature_for_multi_sig_transaction, get_private_key, merch_generate_transaction_id,
-    sign_child_transaction_helper, sign_child_transaction_to_bump_fee_helper,
-    sign_cust_close_claim_transaction_helper, sign_escrow_transaction,
-    sign_merch_claim_transaction_helper, sign_merch_dispute_transaction_helper,
+    sign_child_transaction_to_bump_fee_helper, sign_cust_close_claim_transaction_helper,
+    sign_escrow_transaction, sign_merch_claim_transaction_helper,
+    sign_merch_dispute_transaction_helper,
 };
 use transactions::{ChangeOutput, MultiSigOutput, Output, UtxoInput};
 
@@ -656,13 +656,13 @@ pub fn customer_sign_cust_close_claim_transaction(
     txid_le: Vec<u8>,
     index: u32,
     input_sats: i64,
+    cust_sk: Vec<u8>,
     output_sats: i64,
     self_delay_be: [u8; 2],
     output_pk: Vec<u8>,
     rev_lock: Vec<u8>,
     cust_close_pk: Vec<u8>,
     merch_disp_pk: Vec<u8>,
-    cust_sk: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
     check_sk_length!(cust_sk);
     check_pk_length!(cust_close_pk);
@@ -683,12 +683,14 @@ pub fn customer_sign_cust_close_claim_transaction(
         txid_le,
         index,
         input_sats,
+        sk,
+        None,
+        None,
         output,
         self_delay_be,
         rev_lock,
         merch_disp_pk,
         cust_close_pk,
-        sk,
     ) {
         Ok(s) => s.0,
         Err(e) => return Err(e.to_string()),
@@ -885,41 +887,6 @@ pub fn merchant_sign_mutual_close_transaction(
     let mut txid_le = txid_be.to_vec();
     txid_le.reverse();
     return Ok((signed_tx, txid_le));
-}
-
-pub fn create_child_transaction(
-    txid_le: Vec<u8>,
-    index: u32,
-    input_sats: i64,
-    output_sats: i64,
-    output_pk: &Vec<u8>,
-    private_key: &Vec<u8>,
-) -> Result<(Vec<u8>, Vec<u8>), String> {
-    check_sk_length!(private_key);
-    check_pk_length!(output_pk);
-    let the_sk = handle_error!(SecretKey::parse_slice(&private_key));
-    let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&the_sk, false);
-    if output_sats > input_sats {
-        return Err(format!("output_sats should be less than input_sats"));
-    }
-
-    let input = UtxoInput {
-        address_format: String::from("p2wpkh"),
-        transaction_id: txid_le,
-        index: index,
-        redeem_script: None,
-        script_pub_key: None,
-        utxo_amount: Some(input_sats),
-        sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
-    };
-
-    let output = Output {
-        amount: output_sats,
-        pubkey: output_pk.clone(),
-    };
-
-    let (signed_tx, txid) = handle_error!(sign_child_transaction_helper(input, output, &sk));
-    Ok((signed_tx, txid))
 }
 
 pub fn create_child_transaction_to_bump_fee(
@@ -1302,41 +1269,6 @@ mod tests {
 
         println!("mutual close tx: {}", hex::encode(&signed_mutual_tx));
         println!("txid: {}", hex::encode(&txid_be));
-    }
-
-    #[test]
-    fn claim_child_transaction_outputs() {
-        let txid = hex::decode("d21502c0d197e86b2847ff4c275ae989e06a52f09d60425701c2908217444326")
-            .unwrap();
-        let index = 3;
-
-        // customer's keypair for utxo
-        let (_, cust_input_sk) = get_helper_utxo1();
-
-        let good_input_sats = 3 * SATOSHI;
-        let tx_fee = 1000;
-        let output_sats = good_input_sats - tx_fee;
-
-        let output_pk =
-            hex::decode("034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa")
-                .unwrap();
-
-        let (signed_tx, txid_buf) = create_child_transaction(
-            txid,
-            index,
-            good_input_sats,
-            output_sats,
-            &output_pk,
-            &cust_input_sk,
-        )
-        .unwrap();
-
-        println!("signed tx: {}", hex::encode(&signed_tx));
-        println!("txid: {}", hex::encode(&txid_buf));
-        assert_eq!(
-            hex::encode(&txid_buf),
-            "6641ad3b397bfafbf7c2da144e0be04b71d2910afc9a8efebccdfb01ff3916c6"
-        );
     }
 
     #[test]
