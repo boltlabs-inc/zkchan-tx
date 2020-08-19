@@ -2477,9 +2477,14 @@ mod tests {
             sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
         };
 
-        let (signed_tx2, _tx_preimage2) =
-            transactions::btc::sign_merch_claim_transaction_helper(input2, output, m_private_key, None, None)
-                .unwrap();
+        let (signed_tx2, _tx_preimage2) = transactions::btc::sign_merch_claim_transaction_helper(
+            input2,
+            output,
+            m_private_key,
+            None,
+            None,
+        )
+        .unwrap();
         println!("Spend from P2WSH: {}", hex::encode(signed_tx2));
     }
 }

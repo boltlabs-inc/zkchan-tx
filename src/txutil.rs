@@ -764,11 +764,10 @@ pub fn merchant_sign_cust_close_claim_transaction(
         pubkey: output_pk,
     };
 
-    let signed_tx =
-        match sign_merch_claim_transaction_helper(input, output, sk, None, None) {
-            Ok(s) => s.0,
-            Err(e) => return Err(e.to_string()),
-        };
+    let signed_tx = match sign_merch_claim_transaction_helper(input, output, sk, None, None) {
+        Ok(s) => s.0,
+        Err(e) => return Err(e.to_string()),
+    };
     Ok(signed_tx)
 }
 
@@ -835,7 +834,7 @@ pub fn merchant_sign_merch_close_claim_transaction(
         sequence: Some(sequence),
     };
 
-    let cpfp_tx_input = match cpfp_key.is_some() {
+    let cpfp_tx_input = match cpfp_key.is_some() && (cpfp_input_sats > 0 && cpfp_index > 0) {
         true => Some(UtxoInput {
             address_format: String::from("p2wpkh"),
             transaction_id: txid_le,
@@ -848,16 +847,16 @@ pub fn merchant_sign_merch_close_claim_transaction(
         false => None,
     };
 
-
     let output = Output {
         amount: output_sats,
         pubkey: output_pk,
     };
 
-    let signed_tx = match sign_merch_claim_transaction_helper(input, output, sk, cpfp_tx_input, cpfp_key) {
-        Ok(s) => s.0,
-        Err(e) => return Err(e.to_string()),
-    };
+    let signed_tx =
+        match sign_merch_claim_transaction_helper(input, output, sk, cpfp_tx_input, cpfp_key) {
+            Ok(s) => s.0,
+            Err(e) => return Err(e.to_string()),
+        };
     Ok(signed_tx)
 }
 
