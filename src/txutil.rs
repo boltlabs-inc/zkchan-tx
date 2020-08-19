@@ -742,13 +742,16 @@ pub fn merchant_sign_cust_close_claim_transaction(
     check_pk_length!(output_pk);
     let msk = handle_error!(SecretKey::parse_slice(&merch_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&msk, false);
+
     if output_sats > input_sats {
-        return Err(format!("output_sats should be less than input_sats"));
+        return Err(format!(
+            "output_sats should be less than input_sats + cpfp_input"
+        ));
     }
 
     let input = UtxoInput {
         address_format: String::from("p2wpkh"),
-        transaction_id: txid_le,
+        transaction_id: txid_le.clone(),
         index: index,
         redeem_script: None,
         script_pub_key: None,
@@ -761,10 +764,11 @@ pub fn merchant_sign_cust_close_claim_transaction(
         pubkey: output_pk,
     };
 
-    let signed_tx = match sign_merch_claim_transaction_helper(input, output, sk) {
-        Ok(s) => s.0,
-        Err(e) => return Err(e.to_string()),
-    };
+    let signed_tx =
+        match sign_merch_claim_transaction_helper(input, output, sk, None, None) {
+            Ok(s) => s.0,
+            Err(e) => return Err(e.to_string()),
+        };
     Ok(signed_tx)
 }
 
@@ -779,12 +783,34 @@ pub fn merchant_sign_merch_close_claim_transaction(
     merch_pk: Vec<u8>,
     merch_close_pk: Vec<u8>,
     merch_close_sk: Vec<u8>,
+    cpfp_input: Option<(u32, i64)>,
+    cpfp_sk: Option<Vec<u8>>,
 ) -> Result<Vec<u8>, String> {
     check_pk_length!(merch_pk);
     check_pk_length!(merch_close_pk);
     check_sk_length!(merch_close_sk);
     let merch_csk = handle_error!(SecretKey::parse_slice(&merch_close_sk));
     let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&merch_csk, false);
+
+    let cpfp_key = match cpfp_sk {
+        Some(s) => {
+            let _sk = handle_error!(SecretKey::parse_slice(&s));
+            let sk = BitcoinPrivateKey::<Testnet>::from_secp256k1_secret_key(&_sk, false);
+            Some(sk)
+        }
+        None => None,
+    };
+
+    let (cpfp_index, cpfp_input_sats) = match cpfp_input {
+        Some(s) => (s.0, s.1),
+        None => (0, 0),
+    };
+
+    if output_sats > (input_sats + cpfp_input_sats) {
+        return Err(format!(
+            "output_sats should be less than input_sats + cpfp_input"
+        ));
+    }
 
     let mut to_self_delay_le = to_self_delay_be.to_vec();
     to_self_delay_le.reverse();
@@ -801,7 +827,7 @@ pub fn merchant_sign_merch_close_claim_transaction(
 
     let input = UtxoInput {
         address_format: String::from("p2wsh"),
-        transaction_id: txid_le,
+        transaction_id: txid_le.clone(),
         index: index,
         redeem_script: Some(redeem_script),
         script_pub_key: None,
@@ -809,12 +835,26 @@ pub fn merchant_sign_merch_close_claim_transaction(
         sequence: Some(sequence),
     };
 
+    let cpfp_tx_input = match cpfp_key.is_some() {
+        true => Some(UtxoInput {
+            address_format: String::from("p2wpkh"),
+            transaction_id: txid_le,
+            index: cpfp_index,
+            redeem_script: None,
+            script_pub_key: None,
+            utxo_amount: Some(cpfp_input_sats),
+            sequence: Some([0xff, 0xff, 0xff, 0xff]), // 4294967295
+        }),
+        false => None,
+    };
+
+
     let output = Output {
         amount: output_sats,
         pubkey: output_pk,
     };
 
-    let signed_tx = match sign_merch_claim_transaction_helper(input, output, sk) {
+    let signed_tx = match sign_merch_claim_transaction_helper(input, output, sk, cpfp_tx_input, cpfp_key) {
         Ok(s) => s.0,
         Err(e) => return Err(e.to_string()),
     };

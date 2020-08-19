@@ -1293,13 +1293,13 @@ pub mod btc {
         if cpfp_private_key.is_some() {
             let private_key1 = cpfp_private_key.unwrap();
             let full_signed_tx = handle_error!(signed_tx.sign(&private_key1));
-            let signed_tx_vec = full_signed_tx.to_transaction_bytes().unwrap();
+            let signed_tx_vec = handle_error!(full_signed_tx.to_transaction_bytes());
             let txid_str = handle_error!(signed_tx.to_transaction_id());
             let txid_bytes = handle_error!(hex::decode(txid_str.to_string()));
             return Ok((signed_tx_vec, txid_bytes));
         }
 
-        let signed_tx_vec = signed_tx.to_transaction_bytes().unwrap();
+        let signed_tx_vec = handle_error!(signed_tx.to_transaction_bytes());
         let txid_str = handle_error!(signed_tx.to_transaction_id());
         let txid_bytes = handle_error!(hex::decode(txid_str.to_string()));
         Ok((signed_tx_vec, txid_bytes))
@@ -1391,11 +1391,13 @@ pub mod btc {
         input: UtxoInput,
         output: Output,
         private_key: BitcoinPrivateKey<N>,
+        cpfp_input: Option<UtxoInput>,
+        cpfp_key: Option<BitcoinPrivateKey<N>>,
     ) -> Result<(Vec<u8>, Vec<u8>), String> {
         let version = 2;
         let lock_time = 0;
         let address_format = match input.address_format.as_str() {
-            "p2wpkh" => BitcoinFormat::Bech32, // output of cust-close-*-tx
+            "p2wpkh" => BitcoinFormat::Bech32, // output of cust-close-*-tx or cpfp_output
             "p2wsh" => BitcoinFormat::P2WSH,   // output of merch-close-tx
             _ => {
                 return Err(format!(
@@ -1448,6 +1450,24 @@ pub mod btc {
         let mut input_vec = vec![];
         input_vec.push(tx_input);
 
+        // check for cpfp
+        if cpfp_input.is_some() && cpfp_key.is_some() {
+            let input1 = cpfp_input.unwrap();
+            let private_key1 = cpfp_key.clone().unwrap();
+            let address1 = handle_error!(private_key1.to_address(&BitcoinFormat::Bech32));
+            let public_key1 = private_key1
+                .to_public_key()
+                .to_secp256k1_public_key()
+                .serialize_compressed()
+                .to_vec();
+            let cpfp_tx_input = handle_error!(transactions::btc::form_transaction_input::<N>(
+                &input1,
+                &address1,
+                &public_key1
+            ));
+            input_vec.push(cpfp_tx_input);
+        }
+
         // add P2WPKH output
         let output_script_pubkey = create_p2wpkh_scriptpubkey::<N>(&output.pubkey, false);
         let p2wpkh_output = BitcoinTransactionOutput {
@@ -1466,16 +1486,24 @@ pub mod btc {
             segwit_flag: true,
         };
 
-        let transaction = BitcoinTransaction::<N>::new(&transaction_parameters).unwrap();
-        // let hash_preimage = transaction.segwit_hash_preimage(0, SIGHASH_ALL).unwrap();
-
+        let transaction = handle_error!(BitcoinTransaction::<N>::new(&transaction_parameters));
         let signed_tx = match transaction.sign(&private_key) {
             Ok(s) => s,
             Err(e) => return Err(format!("Failed to sign transaction: {:?}", e)),
         };
 
-        let signed_tx_vec = signed_tx.to_transaction_bytes().unwrap();
-        Ok((signed_tx_vec, Vec::new()))
+        if cpfp_key.is_some() {
+            let private_key1 = cpfp_key.unwrap();
+            let fully_signed_tx = handle_error!(transaction.sign(&private_key1));
+            let signed_tx_vec = handle_error!(fully_signed_tx.to_transaction_bytes());
+            let txid_str = handle_error!(signed_tx.to_transaction_id());
+            let txid_bytes = handle_error!(hex::decode(txid_str.to_string()));
+            return Ok((signed_tx_vec, txid_bytes));
+        }
+        let signed_tx_vec = handle_error!(signed_tx.to_transaction_bytes());
+        let txid_str = handle_error!(signed_tx.to_transaction_id());
+        let txid_bytes = handle_error!(hex::decode(txid_str.to_string()));
+        Ok((signed_tx_vec, txid_bytes))
     }
 
     pub fn generate_customer_close_tx_helper<N: BitcoinNetwork>(
@@ -1624,7 +1652,7 @@ pub mod btc {
         let version = 2;
         let lock_time = 0;
 
-        let utxo1_address = private_key1.to_address(&BitcoinFormat::Bech32).unwrap();
+        let utxo1_address = handle_error!(private_key1.to_address(&BitcoinFormat::Bech32));
         let public_key1 = private_key1
             .to_public_key()
             .to_secp256k1_public_key()
@@ -1643,7 +1671,7 @@ pub mod btc {
             _ => return Err(format!("not supported address format specified")),
         };
 
-        let utxo2_address = private_key2.to_address(&address_format).unwrap();
+        let utxo2_address = handle_error!(private_key2.to_address(&address_format));
         let public_key2 = private_key2
             .to_public_key()
             .to_secp256k1_public_key()
@@ -2409,6 +2437,8 @@ mod tests {
             input1,
             output.clone(),
             m_private_key.clone(),
+            None,
+            None,
         )
         .unwrap();
         println!("Spend from P2WPKH: {}", hex::encode(signed_tx1));
@@ -2448,7 +2478,7 @@ mod tests {
         };
 
         let (signed_tx2, _tx_preimage2) =
-            transactions::btc::sign_merch_claim_transaction_helper(input2, output, m_private_key)
+            transactions::btc::sign_merch_claim_transaction_helper(input2, output, m_private_key, None, None)
                 .unwrap();
         println!("Spend from P2WSH: {}", hex::encode(signed_tx2));
     }
