@@ -59,6 +59,13 @@ impl<'de> Deserialize<'de> for FixedSizeArray16 {
     }
 }
 
+impl AsRef<[u8]> for FixedSizeArray16 {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        return &self.0;
+    }
+}
+
 #[derive(Copy, Clone, Hash, Eq, PartialEq)]
 pub struct FixedSizeArray32(pub [u8; 32]);
 
@@ -115,6 +122,14 @@ impl<'de> Deserialize<'de> for FixedSizeArray32 {
         deserializer.deserialize_str(FixedSizeArray32Visitor {})
     }
 }
+
+impl AsRef<[u8]> for FixedSizeArray32 {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        return &self.0;
+    }
+}
+
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq)]
 pub struct FixedSizeArray64(pub [u8; 32], pub [u8; 32]);
